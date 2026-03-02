@@ -117,25 +117,28 @@ L2 正确计算 = Δ（USDT + USDC + USDe + FDUSD + DAI + ...）过去 7 日
 
 如果你要判断 Solana 上的机会，更精准的指标是：
 
-**Solana 链上稳定币净流入（7日）**  
+**各链稳定币净流入（7日）：Solana / Base / BNBChain**
 而不是全局稳定币总量
-
 - 全局 TUSD 增加，但如果都流入 BSC，Solana 不会涨
 - Solana 链上稳定币净增，才真正代表 Solana 的"弹药库在充能"
-
-数据来源：DefiLlama → Chain 对比 → Solana Stablecoin TVL 趋势
+- 同时观察 Base、BNBChain，判断资金聚焦在哪条链
+数据来源：DefiLlama → Chain 对比 → Stablecoin TVL 趋势
 
 ### 补充后的 L2 分层
 
 ```
-L2-A（全局层）：Total Stablecoin Market Cap 7日净变化
-  └→ 判断：全球场内美元弹药是增加还是减少
+L2 组成（三个维度）：
 
-L2-B（链上层）：Solana 链上稳定币净流入（7日）
-  └→ 判断：弹药是否已经瞄准 Solana 战场
-```
+① Solana vs ETH vs BSC TVL（总量）
+└→ 所有主要稳定币的总规模，作为总流动性参考
 
-只有 L2-A 和 L2-B 同时绿，Solana Meme 币的弹药才是真实充足的。
+② Total Stablecoin Market Cap 7日净变化
+└→ 判断：全球场内美元弹药是增加还是减少
+
+③ Solana / Base / BNBChain 链上稳定币净流入（7日）
+└→ 判断：战场在哪条链
+
+三个维度综合看，才能准确判断弹药是否充足、战场是否聚焦。
 
 ---
 
@@ -224,12 +227,13 @@ L1：Global Net Liquidity = 美联储资产负债表 - TGA - RRP
   └→ 关注：增速变化（动量），不只是绝对值
 
 L2：稳定币弹药
-  ├→ L2-A：Total Stablecoin Market Cap 7日净变化（全局）
-  └→ L2-B：Solana 链上稳定币净流入（7日）
+├→ Solana vs ETH vs BSC TVL（总量，总流动性参考）
+├→ Total Stablecoin Market Cap 7日净变化（全局增减）
+└→ Solana / Base / BNBChain 链上稳定币净流入（7日，战场判断）
 
-L3：链上偏好
-  ├→ Solana vs ETH vs BSC TVL（存量）
-  └→ 补充：Solana 稳定币净流入 vs ETH/BSC（增量，更灵敏）
+L3：Meme 板块流动性
+├→ Meme 币总市值
+└→ 新币发射数量变化（7日）
 
 L4：Meme 个股流动性
   └→ 资金结构 / 持仓结构 / 换手率
@@ -244,7 +248,7 @@ L4：Meme 个股流动性
 2. 再看 L1 → 确定当前水龙头方向（和 L0 比较：是否一致？）
 3. 检查 L1 已持续几周 → 判断传导进度（约 13 周传导到 L4）
 4. 看 L2-A 和 L2-B → 弹药是否到位？
-5. 看 L3 → 战场是否在 Solana？
+5. 看 L3 → Meme 板块整体热吗？（总市值 + 新币数量）
 6. 最后看 L4 → 在确认了前五步之后，才判断具体标的
 ```
 
