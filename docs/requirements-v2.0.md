@@ -115,8 +115,11 @@ L4 → 研判具体标的，做出进出场决策
 **含义：** Meme 板块整体是否活跃，决定当前市场是否适合做 Meme 交易。
 
 **组成：**
-- Meme 币总市值
-- 新币发射数量变化（7 日）
+-Solana DEX 日交易量（单位 B，来源 DeFiLlama）
+-Solana DEX 7日前交易量（用于自动计算 7日变化百分比）
+-Meme 市值趋势（全链，来源 CoinGecko）
+-Base DEX 交易量趋势（辅助，来源 DeFiLlama）
+-BSC DEX 交易量趋势（辅助，来源 DeFiLlama）
 
 ---
 
@@ -175,13 +178,26 @@ Step 5：L4 → 最后才看具体标的
 | L2 | Solana / ETH / BSC TVL | DefiLlama / AI | 日 |
 | L2 | 稳定币总市值 7日净变化 | DefiLlama / AI | 日 |
 | L2 | Solana / Base / BNBChain 链上稳定币净流入（7日） | DefiLlama / AI | 日 |
-| L3 | Meme 币总市值 | AI 搜索 / 手动输入 | 日 |
-| L3 | 新币发射数量变化（7日） | AI 搜索 / 手动输入 | 日 |
+| L3 | Meme 总市值（全链，单位 B）→ 来源 CoinGecko Meme 分类
+| L3 | Solana DEX 日交易量（单位 B）→ 来源 DeFiLlama DEX/Solana
+| L3 | Solana DEX 7日前交易量（单位 B）→ 同上，查7天前数据
+| L3 | Meme 市值趋势（全链）→ 上升/持平/下降
+| L3 | Base DEX 交易量趋势（辅助）→ 上升/持平/下降
+| L3 | BSC DEX 交易量趋势（辅助）→ 上升/持平/下降
 
 **数据输入方式（V2 阶段）：**
-- 每个指标旁有「🔄 AI 查询」按钮，点击后 Claude AI 自动搜索并填入
-- 用户可以手动修正任何字段
-- 支持手动直接输入（AI 挂了也能用）
+- 每个指标区块内嵌数据源快捷链接，点击跳转到对应网站查看数据
+- 用户查看后手动填入数字，所有字段均支持直接输入
+- 数据通过 window.storage 按日期持久化，次日打开自动恢复昨天数据
+- 宏观数据变化慢（Fed/TGA/RRP 每周一次，TVL 每天变化<1%），多数字段无需每天改
+- AI 自动搜索仅用于热榜抓取（每天变化大、手动做痛苦的场景）
+
+数据源快捷链接清单：
+- L0-B：TradingView BTCUSD（BTC现价+200MA）、LookIntoBitcoin（MVRV Z-Score）
+- L1：FRED WALCL（Fed资产负债表）、FRED WTREGEN（TGA）、FRED RRPONTSYD（RRP）
+- L2：DeFiLlama /chains（三链TVL）、/stablecoins（总量7日变化）、/stablecoins/chains（各链净流入）
+- L3：CoinGecko /categories/meme-token（Meme总市值）、DeFiLlama /dexs/chains/solana|base|bsc（DEX交易量）
+- F&G：Alternative.me /crypto/fear-and-greed-index/
 
 **信号灯判断规则（每层）：**
 
@@ -191,7 +207,7 @@ Step 5：L4 → 最后才看具体标的
 | L0-B | BTC > 200日均 × 1.0 | 接近均线 ±5% | BTC < 200日均 |
 | L1 | GNL 连续扩张 ≥3 周 | 扩张 1-2 周 | 收缩或停滞 |
 | L2 | 稳定币总量净增 且 目标链净流入为正 | 仅一项为正 | 均为负 |
-| L3 | Meme 总市值上升 且 新币数量增加 | 一项为正 | 均下降 |
+| L3 | Meme市值趋势+Solana DEX交易量均涨（加权≥0.7） | 分歧或持平（0.4-0.7） | 均跌（<0.4） |
 
 **系统综合信号计算：**  
 5 层信号灯 → 🟢=1分 / 🟡=0.5分 / 🔴=0分 → 总分 ÷5  
