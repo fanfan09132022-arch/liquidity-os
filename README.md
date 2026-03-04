@@ -40,13 +40,10 @@ L4 → 研判具体标的，做出进出场决策
 - Solana / Base / BNBChain 链上稳定币净流入（7 日）—— 判断战场在哪条链
 
 **L3 Meme 板块流动性**
-数值指标（填数字）：
 - Meme 总市值（全链，单位 B）→ 来源 CoinGecko Meme 分类
 - Solana DEX 日交易量（单位 B）→ 来源 DeFiLlama DEX/Solana
 - Solana DEX 7日前交易量（单位 B）→ 同上，查7天前数据
   （面板自动计算 7日变化百分比并显示）
-
-趋势判断（选方向）：
 - Meme 市值趋势（全链）→ 上升/持平/下降
 - Base DEX 交易量趋势（辅助）→ 上升/持平/下降
 - BSC DEX 交易量趋势（辅助）→ 上升/持平/下降
