@@ -1,111 +1,85 @@
-# LiquidityOS 流动性仪表盘
-
-用四层流动性框架做 Solana Meme 交易决策的个人工具 | 学习记录
+这是一个根据 2026 年 3 月 5 日最新代码逻辑、Worker 架构以及 v3.0 PRD 文档汇总生成的全新 **`README.md`** 文件。它整合了项目结构、开发进度以及您关注的学习资源。
 
 ---
 
-## 这个项目是什么
+# LiquidityOS 流动性仪表盘 (v3.0)
 
-一个个人交易看板，帮助我在每天 20 分钟内完成从宏观分析到个股研判的完整决策流程，最终输出推文草稿。
-
----
-
-## 核心框架：五层流动性分析（含 L0）
-
-框架的整体逻辑是**从宏观到微观逐层过滤**，上层是下层的前提条件。
-```
-L0 → 确定仓位上限和操作偏见（进攻/防守）
-  ↓
-L1 → 确认流动性方向，判断信号链走到哪一步
-  ↓
-L2 → 确认弹药到位，战场聚焦在哪条链
-  ↓
-L3 → 确认 Meme 板块整体热度
-  ↓
-L4 → 研判具体标的，做出进出场决策
-```
-
-**L0 宏观周期定位（框架的框架）**
-- L0-A：全球流动性大周期阶段（Howell 65 个月周期：扩张期 / 见顶区 / 收缩期）
-- L0-B：BTC 周期位置（BTC 现价 / 200 日均线比率 + MVRV Z-Score）
-
-**L1 全球净流动性**
-- Global Net Liquidity = 美联储资产负债表 − TGA 账户余额 − 逆回购（RRP）余额
-- 关注动量（增速），不是绝对值
-- ⚠️ 时滞警告：L1 领先 BTC 约 13 周，需标注"已持续第几周"
-
-**L2 稳定币弹药**
-- Solana vs ETH vs BSC TVL（总量）—— 总流动性参考
-- Total Stablecoin Market Cap 7 日净变化 —— 总流动性参考
-- Solana / Base / BNBChain 链上稳定币净流入（7 日）—— 判断战场在哪条链
-
-**L3 Meme 板块流动性**
-- Meme 总市值（全链，单位 B）→ 来源 CoinGecko Meme 分类
-- Solana DEX 日交易量（单位 B）→ 来源 DeFiLlama DEX/Solana
-- Solana DEX 7日前交易量（单位 B）→ 同上，查7天前数据
-  （面板自动计算 7日变化百分比并显示）
-- Meme 市值趋势（全链）→ 上升/持平/下降
-- Base DEX 交易量趋势（辅助）→ 上升/持平/下降
-- BSC DEX 交易量趋势（辅助）→ 上升/持平/下降
-
-**L4 Meme 个股流动性**
-- 持仓结构 / LP 比例 / 换手率 / 聪明钱动向（GMGN）
+**LiquidityOS** 是一个专为 Solana Meme 币交易者设计的个人决策看板。它基于“四层流动性框架”理论，旨在将碎片化的宏观数据与微观资产筛选整合进一个标准化的工作流中，最终服务于**推特涨粉 (@partrick2022)** 与**个人交易能力成长**。
 
 ---
 
-## 为什么做这个
+## 核心框架：五层过滤体系 (L0-L4)
 
-我是一个正在学习宏观交易框架的散户。这个项目同时服务于两个目标：
+本工具的核心逻辑是**从宏观到微观逐层过滤**，上层信号是下层操作的前提条件。
 
-1. 建立可重复执行的 Meme 币研判流程
-2. 记录学习过程，在推特 [@partrick2022](https://twitter.com/partrick2022) 持续输出内容
+* **L0 周期定位**：确定全球流动性大周期与 BTC 周期位置，决定仓位上限与操作偏见。
+* **L1 全球净流动性**：确认 GNL (Fed - TGA - RRP) 的扩张动量，捕捉领先 BTC 的信号。
+* **L2 稳定币弹药**：确认场内总弹药量及热钱聚焦的战场（Solana/Base/BSC）。
+* **L3 Meme 板块热度**：基于全链 Meme 市值与各链 DEX 交易量的加权评分，判定板块季节。
+* **L4 存量与增量结构**：通过“存量观测”与“增量筛选”进行微观选品，做出最终决策。
 
 ---
 
 ## 项目结构
-```
+
+```text
 liquidity-os/
-├── README.md
+├── README.md                 ← 项目主说明文档
 ├── dashboard/
-│   └── trading-dashboard.jsx     ← 看板主体代码（React，V1）
+│   └── trading-dashboard.jsx  ← 看板主体代码 (React v2.5+)
+├── worker/
+│   └── worker.js             ← Cloudflare Worker 数据代理代码 (v4)
 └── docs/
-    ├── requirements-v1.1.md      ← PRD 旧版（已废弃，仅存档）
-    ├── requirements-v2.0.md      ← PRD 当前正式版（v2.1）
-    ├── twitter-sop.md            ← 推特内容发布 SOP
-    └── 四层流动性框架 理论补全 2026.03.02  ← 框架理论梳理文档
+    ├── requirements-v3.0.md  ← 最新产品需求文档 (PRD)
+    └── requirements-v2.0.md  ← 旧版 PRD (存档参考)
+
 ```
+
+---
+
+## 核心功能特性 (v3.0 升级)
+
+### 1. 自动数据驱动
+
+* **一键刷新**：通过内置的 Claude API + Web Search 能力，自动拉取 BTC 价格、L2 稳定币、L3 DEX 交易量及恐惧贪婪指数。
+* **数据代理 (Cloudflare Worker)**：已部署独立代理层，支持从 Binance、DeFiLlama、CoinGecko 等多源实时清洗数据。
+
+### 2. 智能化信号引擎
+
+* **Hero 综合信号卡片**：综合 L2、L3、情绪与 L4 四层信号灯，自动判定市场状态（进攻/积极/观望/防御）。
+* **L3/L4 加权评分**：引入主/辅助信号加权算法，科学评估板块热度与个股动能。
+
+### 3. 微观资产筛选器 (L4)
+
+* **存量观测站 (Watchlist)**：追踪 Top 50 Meme 资产，自动计算 **V/MC (成交量/市值比)** 以识别资金聚集地。
+* **新币筛选器 (Alpha Scanner)**：从筹码集中度、资金动量（喷发/承接/衰减）及池子强度三个维度快速过滤新币。
 
 ---
 
 ## 开发进度
 
-- ✅ V1：基础研判看板（四维评分 + 推文草稿生成）
-- ✅ V1：热榜抓取（Claude AI + Web Search 驱动）
-- ✅ 框架理论补全（L0 新增 / L2 修正 / 时滞说明）
-- ✅ PRD v2.1 定稿
-- 🔲 V2 Phase 1：宏观信号仪表盘（L0-L3 指标 + 信号灯 + 持久化）
-- 🔲 V2 Phase 2：Meme 板块热点币抓取
-- 🔲 V2 Phase 3：完整研判卡 + 推文草稿升级
-- 🔲 V2 Phase 4：历史回顾 + 移动端打磨
-
----
-
-## 技术栈
-
-- React JSX（运行在 Claude.ai Artifacts 环境）
-- Anthropic API + Web Search（实时数据抓取）
-- window.storage（数据持久化）
+* ✅ **V1**：基础研判看板、AI 热榜抓取、四维评分、推文草稿生成。
+* ✅ **V2**：宏观信号仪表盘、信号灯引擎、window.storage 持久化。
+* ✅ **V3 (当前)**：重构 L4 逻辑（存量/增量双表）、部署 Cloudflare Worker 数据代理、实现一键刷新宏观快照。
+* 🔲 **未来计划**：接入 FRED API Key 实现 L1 全自动、开发历史回顾功能、优化移动端体验。
 
 ---
 
 ## 学习资源
 
-- Michael Howell《Capital Wars》Substack
-- Raoul Pal「Everything Code」框架（Real Vision）
-- Arthur Hayes Substack
-- DefiLlama（稳定币 / TVL 数据）
-- CryptoQuant（MVRV Z-Score）
+* **宏观框架**：Michael Howell《Capital Wars》、Raoul Pal「Everything Code」框架、Arthur Hayes Substack。
+* **数据工具**：DefiLlama (稳定币/TVL)、CoinGecko (市值)、CryptoQuant (MVRV Z-Score)、FRED (美联储数据)。
+* **链上分析**：DEX Screener (新币发现)、GMGN (聪明钱分析)。
 
 ---
 
-每日研判输出：[@partrick2022](https://twitter.com/partrick2022)
+## 技术栈
+
+* **前端**：React JSX (运行于 Claude.ai Artifacts)。
+* **后端代理**：Cloudflare Workers (JavaScript)。
+* **数据交互**：Anthropic API + Web Search。
+* **存储**：window.storage 本地持久化。
+
+---
+
+**声明**：本工具仅供个人学习及推特内容创作使用，不构成任何投资建议。每日研判输出：[@partrick2022](https://twitter.com/partrick2022)。
