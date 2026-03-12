@@ -158,13 +158,15 @@ liquidity-os/
     ├── requirements-v1.1.md
     ├── requirements-v2.0.md
     ├── requirements-v3.0.md
+    ├── requirements-v4.0.md
+    ├── requirements-v5.0.md
     ├── README.md
     └── twitter-sop.md
 说明：
 ·dashboard/trading-dashboard.jsx：主看板代码
 ·dashboard/worker/worker.js：宏观数据聚合 Worker
-·docs/requirements-v3.0.md：当前主 PRD
-·docs/requirements-v1.1.md / docs/requirements-v2.0.md：历史版本存档
+·docs/requirements-v5.0.md：当前主 PRD
+·docs/requirements-v1.1.md / docs/requirements-v2.0.md / docs/requirements-v3.0.md / docs/requirements-v4.0.md：历史版本存档
 ------
 当前技术方案
 ·React JSX
