@@ -93,6 +93,206 @@ a {
   padding: 10px 18px;
 }
 
+.lo-btc-detail-page {
+  min-height: 100vh;
+  background: #f8f9fb;
+}
+
+.lo-btc-detail-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 240;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: saturate(180%) blur(16px);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.lo-btc-detail-topbar-inner {
+  max-width: 1640px;
+  margin: 0 auto;
+  padding: 18px 24px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.lo-btc-detail-back {
+  appearance: none;
+  border: none;
+  background: none;
+  color: rgba(15, 23, 42, 0.78);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 0;
+  flex: 0 0 auto;
+}
+
+.lo-btc-detail-heading {
+  min-width: 0;
+}
+
+.lo-btc-detail-title {
+  font-size: 24px;
+  font-weight: 720;
+  letter-spacing: -0.04em;
+  color: #0f172a;
+}
+
+.lo-btc-detail-subtitle {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(15, 23, 42, 0.62);
+}
+
+.lo-btc-detail-shell {
+  max-width: 1640px;
+  margin: 0 auto;
+  padding: 24px;
+  display: grid;
+  gap: 16px;
+}
+
+.lo-btc-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+}
+
+.lo-btc-detail-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.88)),
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.06), transparent 32%);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 22px;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.06);
+  padding: 16px;
+}
+
+.lo-btc-detail-card.is-featured {
+  padding: 18px;
+}
+
+.lo-btc-detail-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.lo-btc-detail-fullscreen-btn {
+  appearance: none;
+  border: none;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.04);
+  color: #6b7280;
+  font-size: 11px;
+  line-height: 1;
+  padding: 6px 9px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.lo-btc-detail-card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.lo-btc-detail-card-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: rgba(15, 23, 42, 0.45);
+}
+
+.lo-btc-detail-chart-shell {
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(241, 245, 249, 0.82)),
+    radial-gradient(circle at top left, rgba(37, 99, 235, 0.08), transparent 34%);
+}
+
+.lo-btc-detail-widget {
+  position: relative;
+  z-index: 1;
+}
+
+.lo-btc-detail-widget .tradingview-widget-container__widget {
+  height: 100%;
+  width: 100%;
+}
+
+.lo-btc-detail-chart-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(241, 245, 249, 0.82));
+  color: rgba(15, 23, 42, 0.56);
+  font-size: 13px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.lo-btc-detail-chart-state.is-error {
+  color: rgba(185, 28, 28, 0.8);
+}
+
+.lo-btc-detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #fff;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.lo-btc-detail-overlay-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 0.5px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.lo-btc-detail-overlay-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.lo-btc-detail-overlay-close {
+  appearance: none;
+  border: none;
+  background: none;
+  font-size: 13px;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 4px 8px;
+  flex: 0 0 auto;
+}
+
+.lo-btc-detail-overlay-body {
+  min-height: 0;
+  padding: 12px;
+}
+
+.lo-btc-detail-overlay-body .lo-btc-detail-chart-shell {
+  height: 100% !important;
+}
+
 .lo-command-grid,
 .lo-decision-grid,
 .lo-l4-grid,
@@ -286,30 +486,6 @@ a {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.82);
   line-height: 1.55;
-}
-
-.lo-command-signal-strip {
-  background: rgba(255, 255, 255, 0.9);
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.lo-command-signal-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 4px;
-}
-
-.lo-command-signal-emoji {
-  font-size: 18px;
-}
-
-.lo-command-signal-label {
-  font-size: 10px;
-  color: rgba(15, 23, 42, 0.52);
-  font-weight: 700;
 }
 
 .lo-command-side-panel,
@@ -1147,8 +1323,9 @@ a {
 }
 
 .lo-workbench-panel-reference {
-  background: rgba(250, 251, 253, 0.86);
-  border: 1px solid rgba(15, 23, 42, 0.05);
+  background: rgba(252, 253, 254, 0.76);
+  border: 1px solid rgba(15, 23, 42, 0.035);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.025);
 }
 
 .lo-l4-secondary-panel {
@@ -1162,8 +1339,19 @@ a {
   grid-area: reference;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 10px;
+  gap: 8px;
   min-height: 0;
+}
+
+.lo-l4-reference-panel .lo-workbench-side-title {
+  margin-top: 6px;
+  font-size: 16px;
+}
+
+.lo-l4-reference-panel .lo-workbench-side-copy {
+  margin-top: 4px;
+  font-size: 10px;
+  line-height: 1.5;
 }
 
 .lo-l4-main-panel {
@@ -1380,10 +1568,68 @@ a {
 }
 
 .lo-top50-table-reference {
-  height: 100%;
-  min-height: 340px;
-  max-height: none;
-  background: rgba(248, 250, 252, 0.72);
+  height: auto;
+  min-height: 280px;
+  max-height: 308px;
+  border-color: rgba(15, 23, 42, 0.055);
+  background: rgba(249, 250, 252, 0.62);
+}
+
+.lo-l4-reference-panel .lo-top50-meta-bar-reference {
+  margin-bottom: 0;
+}
+
+.lo-l4-reference-panel .lo-top50-meta-pill {
+  min-height: 22px;
+  padding: 0 9px;
+  background: rgba(15, 23, 42, 0.034);
+  border-color: rgba(15, 23, 42, 0.045);
+  font-size: 9px;
+}
+
+.lo-l4-reference-panel .lo-top50-caption {
+  font-size: 10px;
+  color: rgba(15, 23, 42, 0.44);
+}
+
+.lo-l4-reference-panel .lo-top50-head th {
+  padding: 8px 10px;
+  border-bottom-color: rgba(15, 23, 42, 0.07);
+  background: rgba(249, 250, 252, 0.94);
+  font-size: 9px;
+  color: rgba(15, 23, 42, 0.42);
+}
+
+.lo-l4-reference-panel .lo-top50-row td {
+  padding: 9px 10px;
+  border-bottom-color: rgba(15, 23, 42, 0.055);
+}
+
+.lo-l4-reference-panel .lo-top50-row:hover td {
+  background: rgba(15, 23, 42, 0.024);
+}
+
+.lo-l4-reference-panel .lo-top50-rank-badge {
+  min-width: 28px;
+  height: 22px;
+  font-size: 10px;
+}
+
+.lo-l4-reference-panel .lo-top50-token-cell {
+  gap: 8px;
+}
+
+.lo-l4-reference-panel .lo-top50-token-symbol {
+  font-size: 11px;
+}
+
+.lo-l4-reference-panel .lo-top50-token-name {
+  font-size: 9px;
+}
+
+.lo-l4-reference-panel .lo-top50-num-cell {
+  font-size: 11px;
+  font-weight: 650;
 }
 
 .lo-top50-grid-table {
@@ -2318,6 +2564,10 @@ a {
 }
 
 @media (max-width: 1120px) {
+  .lo-btc-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
   .lo-command-grid {
     grid-template-columns: 1fr;
   }
@@ -2444,6 +2694,16 @@ a {
 }
 
 @media (max-width: 720px) {
+  .lo-btc-detail-topbar-inner {
+    padding: 16px 12px;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .lo-btc-detail-shell {
+    padding: 16px 12px 32px;
+  }
+
   .lo-shell {
     padding: 14px 12px 44px;
   }
@@ -2485,10 +2745,6 @@ a {
 
   .lo-command-cycle-pill {
     flex: 1 1 96px;
-  }
-
-  .lo-command-signal-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .lo-workbench-subhead,

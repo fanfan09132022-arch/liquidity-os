@@ -1,4 +1,9 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import BTCDetailPage from "./BTCDetailPage";
+import FGDetailPage from "./FGDetailPage";
+import L1DetailPage from "./L1DetailPage";
+import L2DetailPage from "./L2DetailPage";
+import L3DetailPage from "./L3DetailPage";
 import { fetchAlphaSupport, fetchMacroViaAI, fetchMacroViaWorker } from "./lib/api";
 
 // ── COLORS ──
@@ -611,6 +616,7 @@ function InsightMetricCard({
   title,
   question,
   statusKey,
+  headAction = null,
   primaryLabel,
   primaryValue,
   changeLabel,
@@ -635,8 +641,11 @@ function InsightMetricCard({
     <div className={`lo-insight-card lo-insight-card-${variant}`} style={cardStyle}>
       <div className="lo-insight-head">
         <div className="lo-insight-title">{title}</div>
-        <div className="lo-insight-status" style={{ color: status.color, background: status.bg }}>
-          {status.label}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {headAction}
+          <div className="lo-insight-status" style={{ color: status.color, background: status.bg }}>
+            {status.label}
+          </div>
         </div>
       </div>
       <div className="lo-insight-body">
@@ -999,6 +1008,7 @@ const buildEmptyWatchlist = () => Array.from({ length: 5 }, emptyWatchRow);
 const buildEmptyAlphaCards = () => Array.from({ length: 3 }, emptyAlpha);
 
 export default function App() {
+  const [currentPage, setCurrentPage] = useState("main");
   const todayValue = getDateValue();
   const yesterdayValue = getDateValue(new Date(Date.now() - 86400000));
   const [selectedDate, setSelectedDate] = useState(todayValue);
@@ -1579,6 +1589,26 @@ export default function App() {
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
   }, [selectedDate, macro, macroTime, macroSource, l0Cycle, l1Manual, mvrvManual, fgVal, dailyNote, watchlist, alphaCards, doSave]);
 
+  if (currentPage === "btc-detail") {
+    return <BTCDetailPage onBack={() => setCurrentPage("main")} />;
+  }
+
+  if (currentPage === "fg") {
+    return <FGDetailPage onBack={() => setCurrentPage("main")} />;
+  }
+
+  if (currentPage === "l1") {
+    return <L1DetailPage onBack={() => setCurrentPage("main")} />;
+  }
+
+  if (currentPage === "l2") {
+    return <L2DetailPage onBack={() => setCurrentPage("main")} />;
+  }
+
+  if (currentPage === "l3") {
+    return <L3DetailPage onBack={() => setCurrentPage("main")} />;
+  }
+
   return (
     <div className="lo-app">
       <div className="lo-topbar">
@@ -1678,14 +1708,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="lo-command-signal-strip">
-                    {[[l2Signal, "稳定币"], [l3Signal, "Meme 板块"], [fgSignal, "情绪"], [l4Signal, "个股"]].map(([s, l], idx) => (
-                      <div key={l} className="lo-command-signal-item" style={{ borderRight: idx === 3 ? "none" : `0.5px solid ${C.sep}` }}>
-                        <div className="lo-command-signal-emoji">{s?.color ? signalEmoji[s.color] : "⚪"}</div>
-                        <div className="lo-command-signal-label">{l}</div>
-                      </div>
-                    ))}
-                  </div>
                 </div>
               </div>
 
@@ -1739,6 +1761,13 @@ export default function App() {
                     <div className="lo-command-btc-title">L0-B · BTC 周期位置</div>
                     <div className="lo-command-btc-note">继续保留 200MA 比率与 MVRV Z-Score，作为 Hero 之后的主控确认依据。</div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage("btc-detail")}
+                    style={{ fontSize: "11px", color: "#6B7280", background: "none", border: "none", cursor: "pointer", padding: "2px 6px" }}
+                  >
+                    详细数据 →
+                  </button>
                 </div>
                 <InsightMetricCard
                   variant="main"
@@ -1814,6 +1843,15 @@ export default function App() {
                 title="L1 · 净流动性"
                 question="净流动性在扩张还是收缩？"
                 statusKey={l1StatusKey}
+                headAction={(
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage("l1")}
+                    style={{ fontSize: "11px", color: "#6B7280", background: "none", border: "none", cursor: "pointer", padding: "2px 6px" }}
+                  >
+                    详细数据 →
+                  </button>
+                )}
                 accentColor={C.blue}
                 primaryLabel="当前 GNL"
                 primaryValue={l1CurrentValue == null ? "—" : `${l1CurrentValue.toFixed(3)}T`}
@@ -1841,66 +1879,91 @@ export default function App() {
               </div>
             </div>
 
-            {macro && (
-              <>
-                <div className="lo-panel-soft lo-decision-card lo-decision-compact" style={{ gridColumn: `span ${contextMetricSpan}` }}>
-                  <InsightMetricCard
-                    title="L2 · 稳定币弹药"
-                    question="场内弹药在补充还是流失？"
-                    statusKey={l2StatusKey}
-                    accentColor={C.teal}
-                    primaryLabel="稳定币总市值"
-                    primaryValue={fmtB(macro.stablecoins?.total)}
-                    changeLabel="7 日净变化"
-                    changeValue={macro.stablecoins?.change_7d != null ? fmtSignedFromRaw(macro.stablecoins.change_7d) : "—"}
-                    changeTone={macro.stablecoins?.change_7d != null ? (macro.stablecoins.change_7d >= 0 ? C.green : C.red) : C.labelTer}
-                    summary={l2Summary}
-                    points={trendSeries.l2}
-                    emptyTrendCopy="历史快照不足，先按总量与 7 日变化判断"
-                    emptyTrendHint="先用左侧净变化做判断，趋势区暂弱化"
-                    trendDeltaLabel="区间总量变化"
-                    trendLatestLabel="最新快照"
-                    trendFormatter={fmtB}
-                    metaItems={[
-                      { label: "7 日占比", value: fmtPct(macro.stablecoins?.change_7d_pct) },
-                      { label: "Solana TVL", value: fmtB(macro.tvl?.solana) },
-                      { label: "BSC TVL", value: fmtB(macro.tvl?.bsc) },
-                    ]}
-                  />
-                  <div className="lo-context-card-foot">L2 评分 {l2Signal.score.toFixed(2)} · {l2Signal.reason}</div>
-                </div>
+            <>
+              <div className="lo-panel-soft lo-decision-card lo-decision-compact" style={{ gridColumn: `span ${contextMetricSpan}` }}>
+                <InsightMetricCard
+                  title="L2 · 稳定币弹药"
+                  question="场内弹药在补充还是流失？"
+                  statusKey={l2StatusKey}
+                  headAction={(
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage("l2")}
+                      style={{ fontSize: "11px", color: "#6B7280", background: "none", border: "none", cursor: "pointer", padding: "2px 6px" }}
+                    >
+                      详细数据 →
+                    </button>
+                  )}
+                  accentColor={C.teal}
+                  primaryLabel="稳定币总市值"
+                  primaryValue={fmtB(macro?.stablecoins?.total)}
+                  changeLabel="7 日净变化"
+                  changeValue={macro?.stablecoins?.change_7d != null ? fmtSignedFromRaw(macro.stablecoins.change_7d) : "—"}
+                  changeTone={macro?.stablecoins?.change_7d != null ? (macro.stablecoins.change_7d >= 0 ? C.green : C.red) : C.labelTer}
+                  summary={l2Summary}
+                  points={trendSeries.l2}
+                  emptyTrendCopy="历史快照不足，先按总量与 7 日变化判断"
+                  emptyTrendHint="先用左侧净变化做判断，趋势区暂弱化"
+                  trendDeltaLabel="区间总量变化"
+                  trendLatestLabel="最新快照"
+                  trendFormatter={fmtB}
+                  metaItems={[
+                    { label: "7 日占比", value: fmtPct(macro?.stablecoins?.change_7d_pct) },
+                    { label: "Solana TVL", value: fmtB(macro?.tvl?.solana) },
+                    { label: "BSC TVL", value: fmtB(macro?.tvl?.bsc) },
+                  ]}
+                />
+                <div className="lo-context-card-foot">L2 评分 {l2Signal ? l2Signal.score.toFixed(2) : "—"} · {l2Signal?.reason || "稳定币数据暂缺，先等待更新。"}</div>
+              </div>
 
-                <div className="lo-panel-soft lo-decision-card lo-decision-compact" style={{ gridColumn: `span ${contextMetricSpan}` }}>
-                  <InsightMetricCard
-                    title="L3 · Meme 板块"
-                    question="Meme 风险偏好在升温还是降温？"
-                    statusKey={l3StatusKey}
-                    accentColor={C.orange}
-                    primaryLabel="Meme 总市值"
-                    primaryValue={macro.meme?.mcap ? fmtB(macro.meme.mcap) : "—"}
-                    changeLabel="24h 变化"
-                    changeValue={fmtPct(macro.meme?.mcap_change_24h)}
-                    changeTone={macro.meme?.mcap_change_24h != null ? (macro.meme.mcap_change_24h >= 0 ? C.green : C.red) : C.labelTer}
-                    summary={l3Summary}
-                    points={trendSeries.l3}
-                    emptyTrendCopy="历史快照不足，先按总市值与 24h 变化判断"
-                    emptyTrendHint="先看左侧热度信号，趋势区后补"
-                    trendDeltaLabel="区间板块变化"
-                    trendLatestLabel="最新快照"
-                    trendFormatter={fmtB}
-                    metaItems={[
-                      { label: "Solana DEX", value: fmtB(macro.dex_volume?.solana?.total_24h) },
-                      { label: "Base DEX", value: fmtB(macro.dex_volume?.base?.total_24h) },
-                      { label: "BSC DEX", value: fmtB(macro.dex_volume?.bsc?.total_24h) },
-                    ]}
-                  />
-                  <div className="lo-context-card-foot">L3 评分 {l3Signal.score.toFixed(2)} · {l3Signal.reason}</div>
-                </div>
-              </>
-            )}
+              <div className="lo-panel-soft lo-decision-card lo-decision-compact" style={{ gridColumn: `span ${contextMetricSpan}` }}>
+                <InsightMetricCard
+                  title="L3 · Meme 板块"
+                  question="Meme 风险偏好在升温还是降温？"
+                  statusKey={l3StatusKey}
+                  headAction={(
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage("l3")}
+                      style={{ fontSize: "11px", color: "#6B7280", background: "none", border: "none", cursor: "pointer", padding: "2px 6px" }}
+                    >
+                      详细数据 →
+                    </button>
+                  )}
+                  accentColor={C.orange}
+                  primaryLabel="Meme 总市值"
+                  primaryValue={macro?.meme?.mcap ? fmtB(macro.meme.mcap) : "—"}
+                  changeLabel="24h 变化"
+                  changeValue={fmtPct(macro?.meme?.mcap_change_24h)}
+                  changeTone={macro?.meme?.mcap_change_24h != null ? (macro.meme.mcap_change_24h >= 0 ? C.green : C.red) : C.labelTer}
+                  summary={l3Summary}
+                  points={trendSeries.l3}
+                  emptyTrendCopy="历史快照不足，先按总市值与 24h 变化判断"
+                  emptyTrendHint="先看左侧热度信号，趋势区后补"
+                  trendDeltaLabel="区间板块变化"
+                  trendLatestLabel="最新快照"
+                  trendFormatter={fmtB}
+                  metaItems={[
+                    { label: "Solana DEX", value: fmtB(macro?.dex_volume?.solana?.total_24h) },
+                    { label: "Base DEX", value: fmtB(macro?.dex_volume?.base?.total_24h) },
+                    { label: "BSC DEX", value: fmtB(macro?.dex_volume?.bsc?.total_24h) },
+                  ]}
+                />
+                <div className="lo-context-card-foot">L3 评分 {l3Signal ? l3Signal.score.toFixed(2) : "—"} · {l3Signal?.reason || "Meme 板块数据暂缺，先等待更新。"}</div>
+              </div>
+            </>
 
             <div className="lo-panel-soft lo-decision-card lo-decision-compact lo-fg-card-compact" style={{ gridColumn: `span ${contextMetricSpan}` }}>
-              <div style={secLabel}>{signalEmoji[fgSignal.color] || "⚪"} 情绪补充 · F&G</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                <div style={secLabel}>{signalEmoji[fgSignal.color] || "⚪"} 情绪补充 · F&G</div>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage("fg")}
+                  style={{ fontSize: "11px", color: "#6B7280", background: "none", border: "none", cursor: "pointer", padding: "2px 6px" }}
+                >
+                  详细数据 →
+                </button>
+              </div>
               <div className="lo-fg-card-main">
                 <div>
                   <div className="lo-fg-card-label">情绪刻度</div>
@@ -1982,7 +2045,7 @@ export default function App() {
             <div>
               <div className="lo-section-kicker">L4 Workbench</div>
               <div className="lo-section-title">{l4Signal?.color ? signalEmoji[l4Signal.color] : "⚪"} 执行工作台</div>
-              <div className="lo-section-note">进入工作台后先处理存量观测站，再在 Alpha Scanner 看新增候选，Top 50 只作为旁侧市场参考。</div>
+              <div className="lo-section-note">进入工作台后先处理存量观测站，再在 Alpha Scanner 看新增候选。</div>
             </div>
           </div>
 
@@ -2066,105 +2129,6 @@ export default function App() {
               </div>
             </div>
 
-            <div className="lo-workbench-panel lo-panel-soft lo-l4-reference-panel lo-workbench-panel-reference">
-              <div className="lo-workbench-subhead">
-                <div>
-                  <div className="lo-workbench-role-pill ref">参考区</div>
-                  <div className="lo-workbench-side-title">Top 50 Meme 市场雷达</div>
-                  <div className="lo-workbench-side-copy">只负责自动扫市场热度、涨跌与成交节奏，作为外部环境雷达使用，不和前两块争主位。</div>
-                </div>
-                {memeTopItems.length > 6 && (
-                  <ActionButton kind="text" onClick={() => setShowAllMemeTop((v) => !v)}>
-                    {showAllMemeTop ? "收起榜单" : `展开全榜 (${memeTopItems.length})`}
-                  </ActionButton>
-                )}
-              </div>
-
-              <div className="lo-top50-meta-bar lo-top50-meta-bar-reference">
-                <div className="lo-top50-meta-pills">
-                  <div className="lo-top50-meta-pill">市场参考</div>
-                  <div className="lo-top50-meta-pill">显示 {visibleMemeTopItems.length} / {memeTopItems.length || 50}</div>
-                </div>
-                <div className="lo-top50-caption">数据源 {top50SourceLabel} · 更新于 {top50UpdatedLabel}</div>
-              </div>
-
-              {memeTopItems.length === 0 ? (
-                <div className="lo-top50-empty">更新数据后，这里会出现自动市场参考榜单，先帮你扫热度，再回到主区和 Alpha 继续判断。</div>
-              ) : (
-                <div className="lo-scroll-table lo-top50-table lo-top50-table-reference">
-                  <table className="lo-top50-grid-table">
-                    <colgroup>
-                      <col style={{ width: "58px" }} />
-                      <col style={{ width: "30%" }} />
-                      <col style={{ width: "16%" }} />
-                      <col style={{ width: "17%" }} />
-                      <col style={{ width: "11%" }} />
-                      <col style={{ width: "11%" }} />
-                      <col style={{ width: "15%" }} />
-                    </colgroup>
-                    <thead>
-                      <tr className="lo-top50-head">
-                        <th className="lo-top50-head-rank">Rank</th>
-                        <th className="lo-top50-head-token">Token</th>
-                        <th className="lo-top50-head-num">Price</th>
-                        <th className="lo-top50-head-num">MCap</th>
-                        <th className="lo-top50-head-num">24h</th>
-                        <th className="lo-top50-head-num">7d</th>
-                        <th className="lo-top50-head-num">Vol 24h</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleMemeTopItems.map((item) => {
-                        const rankValue = Number(item.rank);
-                        const rankTone = Number.isFinite(rankValue) && rankValue <= 3 ? "top" : Number.isFinite(rankValue) && rankValue <= 10 ? "hot" : "";
-                        const iconKey = `${item.rank}-${item.token || item.name || "token"}`;
-                        const iconSrc = item.image && !top50BrokenIcons[iconKey] ? item.image : null;
-                        const fallbackPalette = getTop50FallbackPalette(item.token || item.name || String(item.rank || ""));
-                        return (
-                          <tr key={`${item.rank}-${item.token}`} className="lo-top50-row">
-                            <td className="lo-top50-rank-cell">
-                              <span className={`lo-top50-rank-badge${rankTone ? ` ${rankTone}` : ""}`}>{item.rank || "—"}</span>
-                            </td>
-                            <td className="lo-top50-token-cell">
-                              <div
-                                className={`lo-top50-token-avatar${iconSrc ? " has-image" : " is-fallback"}`}
-                                style={{
-                                  "--lo-top50-fallback-top": fallbackPalette.bgTop,
-                                  "--lo-top50-fallback-bottom": fallbackPalette.bgBottom,
-                                  "--lo-top50-fallback-core": fallbackPalette.core,
-                                  "--lo-top50-fallback-mark": fallbackPalette.mark,
-                                }}
-                              >
-                                {iconSrc ? (
-                                  <img
-                                    className="lo-top50-token-img"
-                                    src={iconSrc}
-                                    alt={item.token || item.name || "token"}
-                                    loading="lazy"
-                                    onError={() => setTop50BrokenIcons((prev) => ({ ...prev, [iconKey]: true }))}
-                                  />
-                                ) : (
-                                  <span className="lo-top50-token-fallback" aria-hidden="true" />
-                                )}
-                              </div>
-                              <div className="lo-top50-token-copy">
-                                <div className="lo-top50-token-symbol">{item.token || "—"}</div>
-                                <div className="lo-top50-token-name">{item.name || "—"}</div>
-                              </div>
-                            </td>
-                            <td className="lo-top50-num-cell">{fmtTop50Price(item.price)}</td>
-                            <td className="lo-top50-num-cell">{fmtB(item.market_cap)}</td>
-                            <td className={`lo-top50-num-cell lo-top50-change-cell ${item.change_24h_pct >= 0 ? "up" : "down"}`}>{fmtPct(item.change_24h_pct)}</td>
-                            <td className={`lo-top50-num-cell lo-top50-change-cell ${item.change_7d_pct >= 0 ? "up" : "down"}`}>{fmtPct(item.change_7d_pct)}</td>
-                            <td className="lo-top50-num-cell">{fmtB(item.volume_24h)}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
           </div>
         </section>
 
