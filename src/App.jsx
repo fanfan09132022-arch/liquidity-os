@@ -1,4 +1,9 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import BTCDetailPage from "./BTCDetailPage";
+import FGDetailPage from "./FGDetailPage";
+import L1DetailPage from "./L1DetailPage";
+import L2DetailPage from "./L2DetailPage";
+import L3DetailPage from "./L3DetailPage";
 import { fetchAlphaSupport, fetchMacroViaAI, fetchMacroViaWorker } from "./lib/api";
 
 // ── COLORS ──
@@ -611,6 +616,7 @@ function InsightMetricCard({
   title,
   question,
   statusKey,
+  headAction = null,
   primaryLabel,
   primaryValue,
   changeLabel,
@@ -635,8 +641,11 @@ function InsightMetricCard({
     <div className={`lo-insight-card lo-insight-card-${variant}`} style={cardStyle}>
       <div className="lo-insight-head">
         <div className="lo-insight-title">{title}</div>
-        <div className="lo-insight-status" style={{ color: status.color, background: status.bg }}>
-          {status.label}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {headAction}
+          <div className="lo-insight-status" style={{ color: status.color, background: status.bg }}>
+            {status.label}
+          </div>
         </div>
       </div>
       <div className="lo-insight-body">
@@ -999,6 +1008,7 @@ const buildEmptyWatchlist = () => Array.from({ length: 5 }, emptyWatchRow);
 const buildEmptyAlphaCards = () => Array.from({ length: 3 }, emptyAlpha);
 
 export default function App() {
+  const [currentPage, setCurrentPage] = useState("main");
   const todayValue = getDateValue();
   const yesterdayValue = getDateValue(new Date(Date.now() - 86400000));
   const [selectedDate, setSelectedDate] = useState(todayValue);
@@ -1579,6 +1589,22 @@ export default function App() {
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
   }, [selectedDate, macro, macroTime, macroSource, l0Cycle, l1Manual, mvrvManual, fgVal, dailyNote, watchlist, alphaCards, doSave]);
 
+  if (currentPage === "btc-detail") {
+    return <BTCDetailPage onBack={() => setCurrentPage("main")} />;
+  }
+  if (currentPage === "fg") {
+    return <FGDetailPage onBack={() => setCurrentPage("main")} />;
+  }
+  if (currentPage === "l1") {
+    return <L1DetailPage onBack={() => setCurrentPage("main")} />;
+  }
+  if (currentPage === "l2") {
+    return <L2DetailPage onBack={() => setCurrentPage("main")} />;
+  }
+  if (currentPage === "l3") {
+    return <L3DetailPage onBack={() => setCurrentPage("main")} />;
+  }
+
   return (
     <div className="lo-app">
       <div className="lo-topbar">
@@ -1739,6 +1765,13 @@ export default function App() {
                     <div className="lo-command-btc-title">L0-B · BTC 周期位置</div>
                     <div className="lo-command-btc-note">继续保留 200MA 比率与 MVRV Z-Score，作为 Hero 之后的主控确认依据。</div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage("btc-detail")}
+                    style={{ fontSize: "11px", color: "#6B7280", background: "none", border: "none", cursor: "pointer", padding: "2px 6px" }}
+                  >
+                    详细数据 →
+                  </button>
                 </div>
                 <InsightMetricCard
                   variant="main"
@@ -1814,6 +1847,15 @@ export default function App() {
                 title="L1 · 净流动性"
                 question="净流动性在扩张还是收缩？"
                 statusKey={l1StatusKey}
+                headAction={(
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage("l1")}
+                    style={{ fontSize: "11px", color: "#6B7280", background: "none", border: "none", cursor: "pointer", padding: "2px 6px" }}
+                  >
+                    详细数据 →
+                  </button>
+                )}
                 accentColor={C.blue}
                 primaryLabel="当前 GNL"
                 primaryValue={l1CurrentValue == null ? "—" : `${l1CurrentValue.toFixed(3)}T`}
@@ -1848,6 +1890,15 @@ export default function App() {
                     title="L2 · 稳定币弹药"
                     question="场内弹药在补充还是流失？"
                     statusKey={l2StatusKey}
+                    headAction={(
+                      <button
+                        type="button"
+                        onClick={() => setCurrentPage("l2")}
+                        style={{ fontSize: "11px", color: "#6B7280", background: "none", border: "none", cursor: "pointer", padding: "2px 6px" }}
+                      >
+                        详细数据 →
+                      </button>
+                    )}
                     accentColor={C.teal}
                     primaryLabel="稳定币总市值"
                     primaryValue={fmtB(macro.stablecoins?.total)}
@@ -1875,6 +1926,15 @@ export default function App() {
                     title="L3 · Meme 板块"
                     question="Meme 风险偏好在升温还是降温？"
                     statusKey={l3StatusKey}
+                    headAction={(
+                      <button
+                        type="button"
+                        onClick={() => setCurrentPage("l3")}
+                        style={{ fontSize: "11px", color: "#6B7280", background: "none", border: "none", cursor: "pointer", padding: "2px 6px" }}
+                      >
+                        详细数据 →
+                      </button>
+                    )}
                     accentColor={C.orange}
                     primaryLabel="Meme 总市值"
                     primaryValue={macro.meme?.mcap ? fmtB(macro.meme.mcap) : "—"}
@@ -1900,7 +1960,16 @@ export default function App() {
             )}
 
             <div className="lo-panel-soft lo-decision-card lo-decision-compact lo-fg-card-compact" style={{ gridColumn: `span ${contextMetricSpan}` }}>
-              <div style={secLabel}>{signalEmoji[fgSignal.color] || "⚪"} 情绪补充 · F&G</div>
+              <div style={{ ...secLabel, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                <span>{signalEmoji[fgSignal.color] || "⚪"} 情绪补充 · F&G</span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage("fg")}
+                  style={{ fontSize: "11px", color: "#6B7280", background: "none", border: "none", cursor: "pointer", padding: "2px 6px" }}
+                >
+                  详细数据 →
+                </button>
+              </div>
               <div className="lo-fg-card-main">
                 <div>
                   <div className="lo-fg-card-label">情绪刻度</div>
