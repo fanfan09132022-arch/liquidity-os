@@ -151,7 +151,10 @@ Beta 验收结论
 liquidity-os/
 ├── README.md
 ├── dashboard/
-│   ├── trading-dashboard.jsx
+│   ├── web/
+│   │   ├── src/
+│   │   ├── package.json
+│   │   └── vite.config.js
 │   └── worker/
 │       └── worker.js
 └── docs/
@@ -163,7 +166,7 @@ liquidity-os/
     ├── README.md
     └── twitter-sop.md
 说明：
-·dashboard/trading-dashboard.jsx：主看板代码
+·dashboard/web：当前独立站前端工作区
 ·dashboard/worker/worker.js：宏观数据聚合 Worker
 ·docs/requirements-v5.0.md：当前主 PRD
 ·docs/requirements-v1.1.md / docs/requirements-v2.0.md / docs/requirements-v3.0.md / docs/requirements-v4.0.md：历史版本存档

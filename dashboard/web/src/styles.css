@@ -93,6 +93,206 @@ a {
   padding: 10px 18px;
 }
 
+.lo-btc-detail-page {
+  min-height: 100vh;
+  background: #f8f9fb;
+}
+
+.lo-btc-detail-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 240;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: saturate(180%) blur(16px);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.lo-btc-detail-topbar-inner {
+  max-width: 1640px;
+  margin: 0 auto;
+  padding: 18px 24px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.lo-btc-detail-back {
+  appearance: none;
+  border: none;
+  background: none;
+  color: rgba(15, 23, 42, 0.78);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 0;
+  flex: 0 0 auto;
+}
+
+.lo-btc-detail-heading {
+  min-width: 0;
+}
+
+.lo-btc-detail-title {
+  font-size: 24px;
+  font-weight: 720;
+  letter-spacing: -0.04em;
+  color: #0f172a;
+}
+
+.lo-btc-detail-subtitle {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(15, 23, 42, 0.62);
+}
+
+.lo-btc-detail-shell {
+  max-width: 1640px;
+  margin: 0 auto;
+  padding: 24px;
+  display: grid;
+  gap: 16px;
+}
+
+.lo-btc-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+}
+
+.lo-btc-detail-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.88)),
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.06), transparent 32%);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 22px;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.06);
+  padding: 16px;
+}
+
+.lo-btc-detail-card.is-featured {
+  padding: 18px;
+}
+
+.lo-btc-detail-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.lo-btc-detail-fullscreen-btn {
+  appearance: none;
+  border: none;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.04);
+  color: #6b7280;
+  font-size: 11px;
+  line-height: 1;
+  padding: 6px 9px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.lo-btc-detail-card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.lo-btc-detail-card-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: rgba(15, 23, 42, 0.45);
+}
+
+.lo-btc-detail-chart-shell {
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(241, 245, 249, 0.82)),
+    radial-gradient(circle at top left, rgba(37, 99, 235, 0.08), transparent 34%);
+}
+
+.lo-btc-detail-widget {
+  position: relative;
+  z-index: 1;
+}
+
+.lo-btc-detail-widget .tradingview-widget-container__widget {
+  height: 100%;
+  width: 100%;
+}
+
+.lo-btc-detail-chart-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(241, 245, 249, 0.82));
+  color: rgba(15, 23, 42, 0.56);
+  font-size: 13px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.lo-btc-detail-chart-state.is-error {
+  color: rgba(185, 28, 28, 0.8);
+}
+
+.lo-btc-detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #fff;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.lo-btc-detail-overlay-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 0.5px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.lo-btc-detail-overlay-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.lo-btc-detail-overlay-close {
+  appearance: none;
+  border: none;
+  background: none;
+  font-size: 13px;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 4px 8px;
+  flex: 0 0 auto;
+}
+
+.lo-btc-detail-overlay-body {
+  min-height: 0;
+  padding: 12px;
+}
+
+.lo-btc-detail-overlay-body .lo-btc-detail-chart-shell {
+  height: 100% !important;
+}
+
 .lo-command-grid,
 .lo-decision-grid,
 .lo-l4-grid,
@@ -2318,6 +2518,10 @@ a {
 }
 
 @media (max-width: 1120px) {
+  .lo-btc-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
   .lo-command-grid {
     grid-template-columns: 1fr;
   }
@@ -2444,6 +2648,16 @@ a {
 }
 
 @media (max-width: 720px) {
+  .lo-btc-detail-topbar-inner {
+    padding: 16px 12px;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .lo-btc-detail-shell {
+    padding: 16px 12px 32px;
+  }
+
   .lo-shell {
     padding: 14px 12px 44px;
   }

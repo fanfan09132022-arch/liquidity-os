@@ -1,0 +1,12 @@
+.DS_Store
+.playwright-cli/
+.skill-drafts/
+.vite/
+.wrangler/
+node_modules/
+dist/
+output/
+
+dashboard/web/node_modules/
+dashboard/web/dist/
+dashboard/worker/.wrangler/

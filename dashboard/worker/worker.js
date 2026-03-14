@@ -529,6 +529,80 @@ async function fetchFRED(env) {
   return results;
 }
 
+function normalizeFredCsv(csvText, limit = 260) {
+  const lines = String(csvText || '').trim().split('\n').slice(1);
+  return {
+    observations: lines
+      .map((line) => {
+        const [date, value] = line.split(',');
+        return { date, value };
+      })
+      .filter((row) => row.date && row.value && row.value !== '.')
+      .slice(-limit)
+      .reverse(),
+  };
+}
+
+async function fetchFearGreedHistory(limit = '5') {
+  return safeFetch(`https://api.alternative.me/fng/?limit=${limit}`);
+}
+
+async function fetchOkxFunding() {
+  return safeFetch('https://www.okx.com/api/v5/public/funding-rate?instId=BTC-USDT-SWAP', {
+    Origin: 'https://www.okx.com',
+    Referer: 'https://www.okx.com/',
+  });
+}
+
+async function fetchOkxOpenInterest() {
+  return safeFetch('https://www.okx.com/api/v5/public/open-interest?instType=SWAP&instId=BTC-USDT-SWAP', {
+    Origin: 'https://www.okx.com',
+    Referer: 'https://www.okx.com/',
+  });
+}
+
+async function fetchFredSeriesObservations(env, series) {
+  const fredKey = env?.FRED_API_KEY;
+  if (fredKey) {
+    try {
+      return await safeFetch(
+        `https://api.stlouisfed.org/fred/series/observations?series_id=${series}&api_key=${fredKey}&file_type=json&sort_order=desc&limit=260`
+      );
+    } catch {}
+  }
+
+  const res = await fetch(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${series}`, {
+    headers: { Accept: 'text/plain' },
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`HTTP ${res.status}${text ? `: ${text}` : ''}`);
+  return normalizeFredCsv(text);
+}
+
+async function fetchCgMarkets(category = 'meme-token', perPage = '50', page = '1') {
+  return safeFetch(
+    `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&category=${category}&order=market_cap_desc&per_page=${perPage}&page=${page}&sparkline=false&price_change_percentage=24h`
+  );
+}
+
+async function fetchCgChart(coinId, days = '30') {
+  return safeFetch(`https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`);
+}
+
+async function fetchLlamaDexByChain(chain) {
+  return safeFetch(
+    `https://api.llama.fi/overview/dexs/${chain}?excludeTotalDataChart=false&excludeTotalDataChartBreakdown=true&dataType=dailyVolume`
+  );
+}
+
+async function fetchLlamaStablecoinsList() {
+  return safeFetch('https://stablecoins.llama.fi/stablecoins?includePrices=true');
+}
+
+async function fetchLlamaStableChart(chain = 'all') {
+  return safeFetch(`https://stablecoins.llama.fi/stablecoincharts/${chain}`);
+}
+
 // ── 主入口 ──
 async function handleRequest(request, env) {
   const url = new URL(request.url);
@@ -570,11 +644,46 @@ async function handleRequest(request, env) {
     }
 
     if (path === '/api/fear-greed') return new Response(JSON.stringify(await safe(fetchFearGreed)), { headers: corsHeaders });
+    if (path === '/api/fg') {
+      const limit = url.searchParams.get('limit') || '5';
+      return new Response(JSON.stringify(await safe(() => fetchFearGreedHistory(limit))), { headers: corsHeaders });
+    }
+    if (path === '/api/funding') return new Response(JSON.stringify(await safe(fetchOkxFunding)), { headers: corsHeaders });
+    if (path === '/api/oi') return new Response(JSON.stringify(await safe(fetchOkxOpenInterest)), { headers: corsHeaders });
     if (path === '/api/btc') return new Response(JSON.stringify(await safe(fetchBTCPrice)), { headers: corsHeaders });
     if (path === '/api/tvl') return new Response(JSON.stringify(await safe(fetchChainTVL)), { headers: corsHeaders });
     if (path === '/api/stablecoins') return new Response(JSON.stringify(await safe(fetchStablecoins)), { headers: corsHeaders });
     if (path === '/api/dex') return new Response(JSON.stringify(await safe(fetchDEXVolume)), { headers: corsHeaders });
+    if (path.startsWith('/api/fred/')) {
+      const series = path.slice('/api/fred/'.length);
+      return new Response(JSON.stringify(await safe(() => fetchFredSeriesObservations(env, series))), { headers: corsHeaders });
+    }
     if (path === '/api/fred') return new Response(JSON.stringify(await safe(() => fetchFRED(env))), { headers: corsHeaders });
+    if (path === '/api/cg/markets') {
+      const category = url.searchParams.get('category') || 'meme-token';
+      const perPage = url.searchParams.get('per_page') || '50';
+      const page = url.searchParams.get('page') || '1';
+      return new Response(JSON.stringify(await safe(() => fetchCgMarkets(category, perPage, page))), { headers: corsHeaders });
+    }
+    if (path.startsWith('/api/cg/chart/')) {
+      const coinId = path.slice('/api/cg/chart/'.length);
+      const days = url.searchParams.get('days') || '30';
+      return new Response(JSON.stringify(await safe(() => fetchCgChart(coinId, days))), { headers: corsHeaders });
+    }
+    if (path.startsWith('/api/llama/dex/')) {
+      const chain = path.slice('/api/llama/dex/'.length);
+      return new Response(JSON.stringify(await safe(() => fetchLlamaDexByChain(chain))), { headers: corsHeaders });
+    }
+    if (path === '/api/llama/stablecoins') {
+      return new Response(JSON.stringify(await safe(fetchLlamaStablecoinsList)), { headers: corsHeaders });
+    }
+    if (path === '/api/llama/stable-chart') {
+      return new Response(JSON.stringify(await safe(() => fetchLlamaStableChart('all'))), { headers: corsHeaders });
+    }
+    if (path.startsWith('/api/llama/stable-chart/')) {
+      const chain = path.slice('/api/llama/stable-chart/'.length);
+      return new Response(JSON.stringify(await safe(() => fetchLlamaStableChart(chain))), { headers: corsHeaders });
+    }
     if (path === '/api/meme') return new Response(JSON.stringify(await safe(fetchMemeMcap)), { headers: corsHeaders });
     if (path === '/api/meme-top') return new Response(JSON.stringify(await safe(() => fetchMemeTopList(env))), { headers: corsHeaders });
     if (path === '/api/alpha-support') {
@@ -586,7 +695,7 @@ async function handleRequest(request, env) {
     if (path === '/' || path === '') {
       return new Response(JSON.stringify({
         status: 'ok', service: 'LiquidityOS Data Worker v4',
-        endpoints: ['/api/all', '/api/fear-greed', '/api/btc', '/api/tvl', '/api/stablecoins', '/api/dex', '/api/fred', '/api/meme', '/api/meme-top', '/api/alpha-support'],
+        endpoints: ['/api/all', '/api/fear-greed', '/api/fg', '/api/funding', '/api/oi', '/api/btc', '/api/tvl', '/api/stablecoins', '/api/dex', '/api/fred', '/api/fred/:series', '/api/cg/markets', '/api/cg/chart/:coinId', '/api/llama/dex/:chain', '/api/llama/stablecoins', '/api/llama/stable-chart', '/api/llama/stable-chart/:chain', '/api/meme', '/api/meme-top', '/api/alpha-support'],
       }, null, 2), { headers: corsHeaders });
     }
     return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: corsHeaders });
