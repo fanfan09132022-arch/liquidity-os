@@ -1,600 +1,766 @@
-function buildCorsHeaders(request) {
-  const origin = request.headers.get('Origin');
-  return {
-    'Access-Control-Allow-Origin': origin || '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Vary': 'Origin',
-    'Content-Type': 'application/json',
-  };
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+const DEFAULT_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (compatible; LiquidityOS/1.0; +https://liquidityos.app)",
+};
+
+const OKX_HEADERS = {
+  Origin: "https://www.okx.com",
+  Referer: "https://www.okx.com/",
+};
+
+const CACHE_TTL = {
+  fg: 3600,
+  binance: 300,
+  cg: 600,
+  cgChart: 3600,
+  llama: 1800,
+  fred: 86400,
+  all: 600,
+};
+
+const INTERNAL_CACHE_ORIGIN = "https://liquidityos-data.internal";
+const WORKER_PUBLIC_URL = "https://liquidityos-data.fanfan09132022.workers.dev";
+const CACHE_NAMESPACE = "v20260315-fix09";
+
+function jsonResponse(data, status = 200, extraHeaders = {}) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      ...extraHeaders,
+      ...CORS,
+    },
+  });
 }
 
-const UA = { headers: { 'User-Agent': 'LiquidityOS/1.0', 'Accept': 'application/json' } };
-
-async function safe(fn) {
-  try { return await fn(); }
-  catch (e) { return { error: e.message }; }
+function textResponse(body, status = 200, extraHeaders = {}) {
+  return new Response(body, {
+    status,
+    headers: {
+      "Content-Type": "text/plain",
+      ...extraHeaders,
+      ...CORS,
+    },
+  });
 }
 
-async function safeFetch(url, headers = {}) {
-  const res = await fetch(url, { headers: { ...UA.headers, ...headers } });
-  const text = await res.text();
-  const trimmed = text && text.trim() ? text.trim() : '';
-  let parsed = null;
-  if (trimmed) {
+function toNumber(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function isRateLimited(status, bodyText) {
+  return status === 429 || status === 1015 || /1015/.test(String(bodyText || "")) || /rate limit/i.test(String(bodyText || ""));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function rawFetch(url, { headers = {}, accept = "application/json", timeoutMs = 3500 } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort("upstream_timeout"), timeoutMs);
+  try {
+    return await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        Accept: accept,
+        ...DEFAULT_HEADERS,
+        ...headers,
+      },
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function proxy(upstreamUrl, contentType = "application/json", headers = {}) {
+  const response = await rawFetch(upstreamUrl, {
+    headers,
+    accept: contentType === "text/plain" ? "text/plain" : "application/json",
+  });
+  const body = await response.text();
+  return new Response(body, {
+    status: response.status,
+    headers: {
+      "Content-Type": contentType,
+      ...CORS,
+    },
+  });
+}
+
+async function getCachedJson(cachePath, ttl, producer) {
+  const cache = caches.default;
+  const cacheKey = new Request(`${INTERNAL_CACHE_ORIGIN}/${CACHE_NAMESPACE}${cachePath}`, { method: "GET" });
+  const cached = await cache.match(cacheKey);
+  if (cached) {
+    return cached.json();
+  }
+
+  const data = await producer();
+  const response = jsonResponse(data, 200, { "Cache-Control": `public, max-age=${ttl}` });
+  await cache.put(cacheKey, response.clone());
+  return data;
+}
+
+async function fetchJsonOrThrow(url, options = {}) {
+  const response = await rawFetch(url, options);
+  const body = await response.text();
+  if (!response.ok) {
+    const error = new Error(`HTTP ${response.status}`);
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+  return JSON.parse(body);
+}
+
+async function fetchJsonSafe(url, options = {}) {
+  try {
+    return await fetchJsonOrThrow(url, options);
+  } catch {
+    return null;
+  }
+}
+
+async function fetchWorkerJson(path) {
+  return fetchJsonOrThrow(`${WORKER_PUBLIC_URL}${path}`, { timeoutMs: 12000 });
+}
+
+async function fetchJsonWithRetry(url, options = {}, retries = 1, delayMs = 600) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
     try {
-      parsed = JSON.parse(trimmed);
-    } catch {
-      parsed = trimmed;
+      return await fetchJsonOrThrow(url, options);
+    } catch (error) {
+      lastError = error;
+      const shouldRetry = attempt < retries && (
+        error?.status === 429 ||
+        /upstream_timeout/i.test(String(error?.message || "")) ||
+        /HTTP 429/i.test(String(error?.message || ""))
+      );
+      if (!shouldRetry) break;
+      await sleep(delayMs);
     }
   }
-  if (!res.ok) {
-    const detail = typeof parsed === 'string'
-      ? parsed
-      : parsed?.error || parsed?.message || parsed?.status?.error_message || JSON.stringify(parsed);
-    throw new Error(`HTTP ${res.status}${detail ? `: ${detail}` : ''}`);
+  throw lastError || new Error("fetch_failed");
+}
+
+async function fetchTextOrThrow(url, options = {}) {
+  const response = await rawFetch(url, options);
+  const body = await response.text();
+  if (!response.ok) {
+    const error = new Error(`HTTP ${response.status}`);
+    error.status = response.status;
+    error.body = body;
+    throw error;
   }
-  return parsed;
+  return body;
 }
 
-async function safeFetchCmc(path, params, apiKey) {
-  const qs = params ? `?${new URLSearchParams(params).toString()}` : '';
-  return safeFetch(`https://pro-api.coinmarketcap.com${path}${qs}`, {
-    'X-CMC_PRO_API_KEY': apiKey,
-  });
-}
-
-async function safeFetchBirdeye(path, params, apiKey, chain) {
-  const qs = params ? `?${new URLSearchParams(params).toString()}` : '';
-  return safeFetch(`https://public-api.birdeye.so${path}${qs}`, {
-    'X-API-KEY': apiKey,
-    'x-chain': chain,
-  });
-}
-
-async function safeFetchGecko(path, apiKey) {
-  return safeFetch(`https://pro-api.coingecko.com/api/v3/onchain${path}`, {
-    'x-cg-pro-api-key': apiKey,
-  });
-}
-
-function normalizeAlphaChain(chain) {
-  const v = String(chain || '').toLowerCase();
-  if (v === 'solana') return { key: 'solana', birdeye: 'solana', gecko: 'solana' };
-  if (v === 'bsc') return { key: 'bsc', birdeye: 'bsc', gecko: 'bsc' };
-  return null;
-}
-
-function toFloat(v) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-function firstNumber(...values) {
-  for (const value of values) {
-    const num = toFloat(value);
-    if (num != null) return num;
-  }
-  return null;
-}
-
-function calcTop10Share(topHolders = []) {
-  const firstTen = topHolders.slice(0, 10);
-  if (firstTen.length === 0) return null;
-  const pctSum = firstTen.reduce((sum, holder) => {
-    const pct = toFloat(holder?.percentage ?? holder?.share ?? holder?.ownership_percentage);
-    return sum + (pct ?? 0);
-  }, 0);
-  return pctSum > 0 ? parseFloat(pctSum.toFixed(2)) : null;
-}
-
-function pickPrimaryPool(pools = []) {
-  if (!Array.isArray(pools) || pools.length === 0) return null;
-  return pools
-    .map(pool => {
-      const attrs = pool?.attributes || {};
-      const liquidity = toFloat(attrs.reserve_in_usd);
-      const volume24h = toFloat(attrs.volume_usd?.h24);
-      return { pool, liquidity: liquidity ?? 0, volume24h: volume24h ?? 0 };
+function normalizeFredCsv(csvText, limit = 260) {
+  const observations = String(csvText || "")
+    .trim()
+    .split("\n")
+    .slice(1)
+    .map((line) => {
+      const [date, value] = line.split(",");
+      return { date, value };
     })
-    .sort((a, b) => (b.liquidity + b.volume24h) - (a.liquidity + a.volume24h))[0]?.pool || null;
+    .filter((row) => row.date && row.value && row.value !== ".")
+    .slice(-limit)
+    .reverse();
+
+  return { observations };
 }
 
-async function fetchAlphaSupport(env, chain, address) {
-  const normalizedChain = normalizeAlphaChain(chain);
-  if (!normalizedChain) return { error: 'Unsupported chain', chain, address, chips: null, momentum: null, pool: null };
-  if (!address) return { error: 'Missing token address', chain: normalizedChain.key, address: '', chips: null, momentum: null, pool: null };
-
-  const birdeyeKey = env?.BIRDEYE_API_KEY;
-  const geckoKey = env?.GECKOTERMINAL_API_KEY || env?.GeckoTerminal_API_KEY;
-  const updatedAt = new Date().toISOString();
-
-  const chips = { source: 'birdeye', updated_at: updatedAt, holder_count: null, top10_share_pct: null, top_holders_count: null, error: null };
-  const momentum = { source: 'birdeye', updated_at: updatedAt, price: null, price_change_24h_pct: null, volume_24h: null, volume_change_24h_pct: null, error: null };
-  const pool = { source: 'geckoterminal', updated_at: updatedAt, pool_address: null, dex_name: null, liquidity_usd: null, volume_24h_usd: null, liq_vol_ratio: null, error: null };
-
-  if (!birdeyeKey) {
-    chips.error = 'BIRDEYE_API_KEY not set';
-    momentum.error = 'BIRDEYE_API_KEY not set';
-  } else {
-    if (normalizedChain.key !== 'solana') {
-      chips.error = 'not_supported';
-    } else {
-      try {
-        const holdersRes = await safeFetchBirdeye('/defi/v3/token/holder', { address, offset: 0, limit: 10 }, birdeyeKey, normalizedChain.birdeye);
-        const holdersData = Array.isArray(holdersRes?.data?.items) ? holdersRes.data.items
-          : Array.isArray(holdersRes?.data) ? holdersRes.data
-          : Array.isArray(holdersRes?.items) ? holdersRes.items
-          : [];
-        const holderCount = firstNumber(holdersRes?.data?.holder_count, holdersRes?.data?.holders, holdersRes?.holder_count, holdersRes?.data?.total_holders);
-        chips.holder_count = holderCount;
-        chips.top_holders_count = holdersData.length;
-        chips.top10_share_pct = calcTop10Share(holdersData);
-      } catch (e) {
-        chips.error = e.message;
-      }
-    }
-
-    try {
-      const [priceRes, priceVolumeRes] = await Promise.all([
-        safeFetchBirdeye('/defi/price', { address }, birdeyeKey, normalizedChain.birdeye),
-        safe(() => safeFetchBirdeye('/defi/price_volume/single', { address }, birdeyeKey, normalizedChain.birdeye)),
-      ]);
-      const priceItem = priceRes?.data || priceRes || {};
-      const pvItem = priceVolumeRes?.data || priceVolumeRes || {};
-      momentum.price = firstNumber(priceItem?.value, priceItem?.price, priceItem?.data?.value, pvItem?.price, pvItem?.current_price, pvItem?.value);
-      momentum.price_change_24h_pct = firstNumber(
-        pvItem?.priceChange24h,
-        pvItem?.price_change_24h,
-        pvItem?.price_change_24h_percent,
-        pvItem?.priceChangePercent24h,
-        pvItem?.price_24h_change_percent
-      );
-      momentum.volume_24h = firstNumber(
-        pvItem?.volume24h,
-        pvItem?.volume_24h,
-        pvItem?.volume,
-        pvItem?.volume24hUSD,
-        pvItem?.volume24h_usd
-      );
-      momentum.volume_change_24h_pct = firstNumber(
-        pvItem?.volumeChange24h,
-        pvItem?.volume_change_24h,
-        pvItem?.volume_change_percent_24h,
-        pvItem?.volume24hChangePercent
-      );
-    } catch (e) {
-      momentum.error = e.message;
-    }
+async function getFredObservations(series, env) {
+  return getCachedJson(`/api/fred/${series}`, CACHE_TTL.fred, async () => {
+  const fredKey = env?.FRED_API_KEY;
+  if (fredKey) {
+    const payload = await fetchJsonOrThrow(
+      `https://api.stlouisfed.org/fred/series/observations?series_id=${series}&api_key=${fredKey}&file_type=json&sort_order=desc&limit=260`
+    );
+    return Array.isArray(payload?.observations)
+      ? payload.observations.filter((item) => item?.date && item?.value && item.value !== ".")
+      : [];
   }
 
-  if (!geckoKey) {
-    pool.error = 'GECKOTERMINAL_API_KEY not set';
-  } else {
-    try {
-      const [poolsRes, tokenRes] = await Promise.all([
-        safe(() => safeFetchGecko(`/networks/${normalizedChain.gecko}/tokens/${address}/pools`, geckoKey)),
-        safe(() => safeFetchGecko(`/networks/${normalizedChain.gecko}/tokens/${address}`, geckoKey)),
-      ]);
-      let poolList = Array.isArray(poolsRes?.data) ? poolsRes.data : [];
-      let primaryPool = pickPrimaryPool(poolList);
-      if (!primaryPool) {
-        const searchRes = await safe(() => safeFetchGecko(`/search/pools?query=${encodeURIComponent(address)}&network=${normalizedChain.gecko}`, geckoKey));
-        const searchPools = Array.isArray(searchRes?.data) ? searchRes.data : [];
-        poolList = searchPools;
-        primaryPool = pickPrimaryPool(searchPools);
-      }
-      const attrs = primaryPool?.attributes || {};
-      let liquidityUsd = firstNumber(attrs.reserve_in_usd, attrs.total_reserve_in_usd);
-      let volume24hUsd = firstNumber(attrs.volume_usd?.h24, attrs.h24_volume_usd);
-      if ((liquidityUsd == null || volume24hUsd == null) && tokenRes?.data?.attributes) {
-        const tokenAttrs = tokenRes.data.attributes;
-        liquidityUsd = liquidityUsd ?? firstNumber(tokenAttrs.total_reserve_in_usd, tokenAttrs.reserve_in_usd);
-        volume24hUsd = volume24hUsd ?? firstNumber(tokenAttrs.volume_usd?.h24, tokenAttrs.h24_volume_usd);
-      }
-      pool.pool_address = attrs.address || null;
-      pool.dex_name = primaryPool?.relationships?.dex?.data?.id || null;
-      pool.liquidity_usd = liquidityUsd;
-      pool.volume_24h_usd = volume24hUsd;
-      pool.liq_vol_ratio = liquidityUsd != null && volume24hUsd && volume24hUsd > 0
-        ? parseFloat((liquidityUsd / volume24hUsd).toFixed(2))
-        : null;
-      if (!primaryPool && liquidityUsd == null && volume24hUsd == null) {
-        pool.error = 'unavailable';
-      }
-    } catch (e) {
-      pool.error = e.message;
-    }
-  }
+  const csvText = await fetchTextOrThrow(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${series}`, {
+    accept: "text/plain",
+  });
+  return normalizeFredCsv(csvText).observations;
+  });
+}
 
+function latestObservation(observations) {
+  return Array.isArray(observations) ? observations.find((item) => item?.date && item?.value && item.value !== ".") || null : null;
+}
+
+function parseStableHistoryPoints(payload) {
+  const rows = Array.isArray(payload) ? payload : payload?.chart || payload?.data || [];
+  return rows
+    .map((item) => {
+      const timestamp = toNumber(item?.date);
+      const value = toNumber(item?.totalCirculatingUSD)
+        ?? toNumber(item?.totalCirculating?.peggedUSD)
+        ?? toNumber(item?.totalCirculatingUSD?.peggedUSD)
+        ?? toNumber(item?.peggedUSD);
+
+      if (timestamp == null || value == null) return null;
+      return { timestamp: timestamp > 1e12 ? timestamp : timestamp * 1000, value };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.timestamp - b.timestamp);
+}
+
+function getCurrentAndPast(points, periodsBack = 7) {
+  if (!Array.isArray(points) || !points.length) return { current: null, past: null };
+  const current = points[points.length - 1] || null;
+  const past = points.length > periodsBack ? points[points.length - 1 - periodsBack] : null;
+  return { current, past };
+}
+
+function buildDexSummary(payload) {
   return {
-    chain: normalizedChain.key,
-    address,
-    updated_at: updatedAt,
-    chips,
-    momentum,
-    pool,
+    total_24h: toNumber(payload?.total24h),
+    change_1d_pct: null,
   };
 }
 
-function calcSimpleMovingAverage(values, length) {
-  if (!Array.isArray(values) || values.length < length) return null;
-  const slice = values.slice(-length);
-  const sum = slice.reduce((acc, item) => acc + item, 0);
-  return parseFloat((sum / length).toFixed(2));
+function getStableChartUsd(item) {
+  return toNumber(item?.totalCirculatingUSD)
+    ?? toNumber(item?.totalCirculating?.peggedUSD)
+    ?? null;
 }
 
-async function fetchBtc200MA() {
-  const data = await safeFetch('https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=220&interval=daily');
-  const prices = Array.isArray(data?.prices) ? data.prices.map(point => point?.[1]).filter(v => Number.isFinite(v)) : [];
-  const ma200 = calcSimpleMovingAverage(prices, 200);
+function buildStableChainSummary(payload) {
+  const rows = Array.isArray(payload) ? payload : [];
+  const latest = rows[rows.length - 1] || null;
+  const weekAgo = rows[rows.length - 8] || rows[0] || null;
+  const latestUsd = getStableChartUsd(latest);
+  const weekAgoUsd = getStableChartUsd(weekAgo);
   return {
-    ma_200: ma200,
-    source: 'coingecko',
-    updated_at: new Date().toISOString(),
+    current: latestUsd,
+    net_inflow_7d: latestUsd != null && weekAgoUsd != null ? latestUsd - weekAgoUsd : null,
   };
 }
 
-// ── Fear & Greed ──
-async function fetchFearGreed() {
-  const data = await safeFetch('https://api.alternative.me/fng/?limit=1');
-  const item = data?.data?.[0];
-  return { value: item ? parseInt(item.value) : null, label: item?.value_classification || null };
+function buildMemeRows(rows) {
+  return (Array.isArray(rows) ? rows : []).map((item, index) => ({
+    rank: index + 1,
+    token: String(item?.symbol || "").toUpperCase(),
+    name: item?.name || "",
+    image: item?.image || null,
+    logo: item?.image || null,
+    price: toNumber(item?.current_price),
+    market_cap: toNumber(item?.market_cap),
+    change_24h_pct: toNumber(item?.price_change_percentage_24h),
+    change_7d_pct: toNumber(item?.price_change_percentage_7d_in_currency),
+    volume_24h: toNumber(item?.total_volume),
+  }));
 }
 
-// ── BTC：Binance (主) → CoinCap (备) → CoinGecko (备) ──
-async function fetchBTCPrice() {
-  const maInfo = await safe(() => fetchBtc200MA());
+const MEME_KEYWORDS = [
+  "doge", "shib", "inu", "pepe", "bonk", "floki", "wif", "mog", "turbo", "brett",
+  "popcat", "pengu", "cheems", "babydoge", "neiro", "ponke", "cat", "goat",
+  "fartcoin", "wojak", "meme", "pnut", "giga", "kek", "mog", "snek",
+];
 
-  // 主：Binance — 全球最稳，免费，无需 Key
-  try {
-    const data = await safeFetch('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT');
-    if (data?.lastPrice) {
-      const price = parseFloat(parseFloat(data.lastPrice).toFixed(2));
-      return {
-        price,
-        change_24h: data.priceChangePercent ? parseFloat(data.priceChangePercent) : null,
-        source: 'binance',
-        ma_200: maInfo?.ma_200 ?? null,
-        ma_source: maInfo?.source || null,
-        vs_ma_200_pct: maInfo?.ma_200 ? parseFloat((((price - maInfo.ma_200) / maInfo.ma_200) * 100).toFixed(2)) : null,
-        updated_at: maInfo?.updated_at || new Date().toISOString(),
-      };
-    }
-  } catch {}
+function isLikelyMemeTicker(item) {
+  const haystack = `${item?.symbol || ""} ${item?.name || ""} ${item?.nameid || ""}`.toLowerCase();
+  return MEME_KEYWORDS.some((keyword) => haystack.includes(keyword));
+}
 
-  // 备1：CoinCap
-  try {
-    const data = await safeFetch('https://api.coincap.io/v2/assets/bitcoin');
-    if (data?.data?.priceUsd) {
-      const price = parseFloat(parseFloat(data.data.priceUsd).toFixed(2));
-      return {
-        price,
-        change_24h: data.data.changePercent24Hr ? parseFloat(parseFloat(data.data.changePercent24Hr).toFixed(2)) : null,
-        source: 'coincap',
-        ma_200: maInfo?.ma_200 ?? null,
-        ma_source: maInfo?.source || null,
-        vs_ma_200_pct: maInfo?.ma_200 ? parseFloat((((price - maInfo.ma_200) / maInfo.ma_200) * 100).toFixed(2)) : null,
-        updated_at: maInfo?.updated_at || new Date().toISOString(),
-      };
-    }
-  } catch {}
+async function getCoinLoreMemeRows() {
+  const payload = await fetchJsonSafe("https://api.coinlore.net/api/tickers/?start=0&limit=100", { timeoutMs: 5000 });
+  const rows = Array.isArray(payload?.data) ? payload.data : [];
+  return rows
+    .filter(isLikelyMemeTicker)
+    .sort((a, b) => (toNumber(b?.market_cap_usd) || 0) - (toNumber(a?.market_cap_usd) || 0))
+    .slice(0, 50)
+    .map((item, index) => ({
+      rank: index + 1,
+      token: String(item?.symbol || "").toUpperCase(),
+      name: item?.name || "",
+      image: null,
+      logo: null,
+      price: toNumber(item?.price_usd),
+      market_cap: toNumber(item?.market_cap_usd),
+      change_24h_pct: toNumber(item?.percent_change_24h),
+      change_7d_pct: toNumber(item?.percent_change_7d),
+      volume_24h: toNumber(item?.volume24),
+    }));
+}
 
-  // 备2：CoinGecko
-  try {
-    const data = await safeFetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true');
-    if (data?.bitcoin?.usd) {
-      const price = data.bitcoin.usd;
-      return {
-        price,
-        change_24h: data.bitcoin.usd_24h_change ? parseFloat(data.bitcoin.usd_24h_change.toFixed(2)) : null,
-        source: 'coingecko',
-        ma_200: maInfo?.ma_200 ?? null,
-        ma_source: maInfo?.source || null,
-        vs_ma_200_pct: maInfo?.ma_200 ? parseFloat((((price - maInfo.ma_200) / maInfo.ma_200) * 100).toFixed(2)) : null,
-        updated_at: maInfo?.updated_at || new Date().toISOString(),
-      };
-    }
-  } catch {}
+function buildMemeSummary(rows) {
+  const marketCap = rows.reduce((sum, item) => sum + (toNumber(item?.market_cap) || 0), 0);
+  const topTenChangeSum = rows
+    .slice(0, 10)
+    .reduce((sum, item) => sum + (toNumber(item?.change_24h_pct) ?? toNumber(item?.price_change_percentage_24h) ?? 0), 0);
+  return {
+    mcap: marketCap || null,
+    mcap_change_24h: rows.length ? topTenChangeSum / 10 : null,
+  };
+}
+
+function averageCloseFromKlines(klines) {
+  const closes = (Array.isArray(klines) ? klines : [])
+    .map((row) => (Array.isArray(row) ? toNumber(row[4]) : null))
+    .filter((value) => value != null);
+  if (!closes.length) return null;
+  return closes.reduce((sum, value) => sum + value, 0) / closes.length;
+}
+
+async function getFearGreed(limit = "5") {
+  return getCachedJson(`/api/fg?limit=${limit}`, CACHE_TTL.fg, async () => (
+    fetchJsonWithRetry(`https://api.alternative.me/fng/?limit=${limit}`, { timeoutMs: 7000 }, 1, 700)
+  ));
+}
+
+async function fetchFearGreedLive(limit = "5") {
+  return fetchJsonWithRetry(`https://api.alternative.me/fng/?limit=${limit}`, { timeoutMs: 7000 }, 1, 700);
+}
+
+async function getCgMarkets(category = "meme-token", perPage = "50", page = "1") {
+  return getCachedJson(
+    `/api/cg/markets?category=${category}&per_page=${perPage}&page=${page}`,
+    CACHE_TTL.cg,
+    async () => (
+      fetchJsonWithRetry(
+        `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&category=${category}&order=market_cap_desc&per_page=${perPage}&page=${page}&sparkline=false&price_change_percentage=24h,7d`,
+        { timeoutMs: 8000 },
+        2,
+        1200
+      )
+    )
+  );
+}
+
+async function getCgChart(coinId, days = "30", interval = "") {
+  const intervalParam = interval ? `&interval=${interval}` : "";
+  return getCachedJson(
+    `/api/cg/chart/${coinId}?days=${days}${interval ? `&interval=${interval}` : ""}`,
+    CACHE_TTL.cgChart,
+    async () => (
+      fetchJsonWithRetry(
+        `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}${intervalParam}`,
+        { timeoutMs: 9000 },
+        2,
+        1200
+      )
+    )
+  );
+}
+
+async function fetchCgMarketsLive(category = "meme-token", perPage = "50", page = "1") {
+  return fetchJsonWithRetry(
+    `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&category=${category}&order=market_cap_desc&per_page=${perPage}&page=${page}&sparkline=false&price_change_percentage=24h,7d`,
+    { timeoutMs: 8000 },
+    1,
+    1200
+  );
+}
+
+async function getBtcSnapshot(now) {
+  return getCachedJson("/internal/btc-snapshot", CACHE_TTL.binance, async () => {
+    const stats = await fetchJsonSafe("https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT", { timeoutMs: 7000 });
+    const cgPricePayload = stats?.lastPrice != null
+      ? null
+      : await fetchJsonWithRetry(
+        "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true",
+        { timeoutMs: 7000 },
+        2,
+        1200
+      );
+    const cgHistory = await getCgChart("bitcoin", "200", "daily");
+    const prices200 = Array.isArray(cgHistory?.prices) ? cgHistory.prices.slice(-200) : [];
+
+    const btcPrice = toNumber(stats?.lastPrice) ?? toNumber(cgPricePayload?.bitcoin?.usd);
+    const ma200 = prices200.length
+      ? prices200.reduce((sum, point) => sum + (Array.isArray(point) ? (toNumber(point[1]) || 0) : 0), 0) / prices200.length
+      : null;
+    const vsMa200Pct = btcPrice != null && ma200 ? ((btcPrice / ma200) - 1) * 100 : null;
+
+    return {
+      price: btcPrice,
+      change_24h: toNumber(stats?.priceChangePercent) ?? toNumber(cgPricePayload?.bitcoin?.usd_24h_change),
+      source: toNumber(stats?.lastPrice) != null ? "Binance" : toNumber(cgPricePayload?.bitcoin?.usd) != null ? "CoinGecko" : null,
+      ma_200: ma200 != null ? Number(ma200.toFixed(2)) : null,
+      ma_source: ma200 != null ? "CoinGecko" : null,
+      vs_ma_200_pct: vsMa200Pct != null ? Number(vsMa200Pct.toFixed(2)) : null,
+      updated_at: now,
+    };
+  });
+}
+
+async function fetchBtcSnapshotLive(now) {
+  const stats = await fetchJsonSafe("https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT", { timeoutMs: 7000 });
+  const cgPricePayload = stats?.lastPrice != null
+    ? null
+    : await fetchJsonWithRetry(
+      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true",
+      { timeoutMs: 7000 },
+      1,
+      1200
+    );
+  const coinLorePayload = btcPriceFallbackMissing(stats, cgPricePayload)
+    ? await fetchJsonSafe("https://api.coinlore.net/api/ticker/?id=90", { timeoutMs: 7000 })
+    : null;
+  const coinLoreBtc = Array.isArray(coinLorePayload) ? coinLorePayload[0] : null;
+  const cgHistory = await getCgChart("bitcoin", "200", "daily");
+  const prices200 = Array.isArray(cgHistory?.prices) ? cgHistory.prices.slice(-200) : [];
+
+  const btcPrice = toNumber(stats?.lastPrice) ?? toNumber(cgPricePayload?.bitcoin?.usd) ?? toNumber(coinLoreBtc?.price_usd);
+  const ma200 = prices200.length
+    ? prices200.reduce((sum, point) => sum + (Array.isArray(point) ? (toNumber(point[1]) || 0) : 0), 0) / prices200.length
+    : null;
+  const vsMa200Pct = btcPrice != null && ma200 ? ((btcPrice / ma200) - 1) * 100 : null;
 
   return {
+    price: btcPrice,
+    change_24h: toNumber(stats?.priceChangePercent) ?? toNumber(cgPricePayload?.bitcoin?.usd_24h_change) ?? toNumber(coinLoreBtc?.percent_change_24h),
+    source: toNumber(stats?.lastPrice) != null ? "Binance" : toNumber(cgPricePayload?.bitcoin?.usd) != null ? "CoinGecko" : toNumber(coinLoreBtc?.price_usd) != null ? "CoinLore" : null,
+    ma_200: ma200 != null ? Number(ma200.toFixed(2)) : null,
+    ma_source: ma200 != null ? "CoinGecko" : null,
+    vs_ma_200_pct: vsMa200Pct != null ? Number(vsMa200Pct.toFixed(2)) : null,
+    updated_at: now,
+  };
+}
+
+function btcPriceFallbackMissing(stats, cgPricePayload) {
+  return toNumber(stats?.lastPrice) == null && toNumber(cgPricePayload?.bitcoin?.usd) == null;
+}
+
+async function getLlamaStableChart(chain = "") {
+  const path = chain ? `/api/llama/stable-chart/${chain}` : "/api/llama/stable-chart";
+  const upstream = chain
+    ? `https://stablecoins.llama.fi/stablecoincharts/${chain}`
+    : "https://stablecoins.llama.fi/stablecoincharts/all";
+  return getCachedJson(path, CACHE_TTL.llama, async () => fetchJsonWithRetry(upstream, { timeoutMs: 5000 }, 2, 1200));
+}
+
+async function fetchLlamaStableChartLive(chain = "") {
+  const upstream = chain
+    ? `https://stablecoins.llama.fi/stablecoincharts/${chain}`
+    : "https://stablecoins.llama.fi/stablecoincharts/all";
+  return fetchJsonWithRetry(upstream, { timeoutMs: 5000 }, 1, 1200);
+}
+
+function pickChainTvl(rows, names = []) {
+  const lowered = new Set(names.map((name) => String(name).toLowerCase()));
+  const hit = (Array.isArray(rows) ? rows : []).find((row) => lowered.has(String(row?.name || row?.tokenSymbol || "").toLowerCase()));
+  return toNumber(hit?.tvl) ?? null;
+}
+
+async function getChainTvls() {
+  return getCachedJson("/internal/llama/chains", CACHE_TTL.llama, async () => {
+    const payload = await fetchJsonOrThrow("https://api.llama.fi/v2/chains", { timeoutMs: 3200 });
+    const rows = Array.isArray(payload) ? payload : [];
+    return {
+      solana: pickChainTvl(rows, ["solana"]),
+      ethereum: pickChainTvl(rows, ["ethereum"]),
+      bsc: pickChainTvl(rows, ["bsc", "binance", "binance smart chain"]),
+    };
+  });
+}
+
+async function fetchChainTvlsLive() {
+  const payload = await fetchJsonOrThrow("https://api.llama.fi/v2/chains", { timeoutMs: 3200 });
+  const rows = Array.isArray(payload) ? payload : [];
+  return {
+    solana: pickChainTvl(rows, ["solana"]),
+    ethereum: pickChainTvl(rows, ["ethereum"]),
+    bsc: pickChainTvl(rows, ["bsc", "binance", "binance smart chain"]),
+  };
+}
+
+async function getLlamaDex(chain) {
+  return getCachedJson(
+    `/api/llama/dex/${chain}`,
+    CACHE_TTL.llama,
+    async () => fetchJsonWithRetry(
+      `https://api.llama.fi/overview/dexs/${chain}?excludeTotalDataChart=false&excludeTotalDataChartBreakdown=true&dataType=dailyVolume`,
+      { timeoutMs: 8000 },
+      2,
+      1200
+    )
+  );
+}
+
+async function fetchLlamaDexLive(chain) {
+  return fetchJsonWithRetry(
+    `https://api.llama.fi/overview/dexs/${chain}?excludeTotalDataChart=false&excludeTotalDataChartBreakdown=true&dataType=dailyVolume`,
+    { timeoutMs: 8000 },
+    1,
+    1200
+  );
+}
+
+async function fetchFredObservationsLive(series, env) {
+  const fredKey = env?.FRED_API_KEY;
+  if (fredKey) {
+    const payload = await fetchJsonOrThrow(
+      `https://api.stlouisfed.org/fred/series/observations?series_id=${series}&api_key=${fredKey}&file_type=json&sort_order=desc&limit=260`
+    );
+    return Array.isArray(payload?.observations)
+      ? payload.observations.filter((item) => item?.date && item?.value && item.value !== ".")
+      : [];
+  }
+
+  const csvText = await fetchTextOrThrow(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${series}`, {
+    accept: "text/plain",
+  });
+  return normalizeFredCsv(csvText).observations;
+}
+
+function buildFredPayload(walcl, tga, rrp, now) {
+  const fedLatest = latestObservation(walcl);
+  const tgaLatest = latestObservation(tga);
+  const rrpLatest = latestObservation(rrp);
+  const fedValue = toNumber(fedLatest?.value);
+  const tgaValue = toNumber(tgaLatest?.value);
+  const rrpValue = toNumber(rrpLatest?.value);
+  const walclT = fedValue != null ? fedValue / 1_000_000 : null;
+  const wtregenT = tgaValue != null ? tgaValue / 1_000_000 : null;
+  const rrpontsydT = rrpValue != null ? rrpValue / 1_000 : null;
+  const gnlValueT = walclT != null && wtregenT != null && rrpontsydT != null
+    ? Number((walclT - wtregenT - rrpontsydT).toFixed(3))
+    : null;
+
+  return {
+    source: "FRED",
+    updated_at: now,
+    gnl: {
+      value_t: gnlValueT,
+      date: fedLatest?.date || tgaLatest?.date || rrpLatest?.date || null,
+    },
+    gnl_value_t: gnlValueT,
+    walcl: walclT != null ? Number(walclT.toFixed(3)) : null,
+    wtregen: wtregenT != null ? Number(wtregenT.toFixed(3)) : null,
+    rrpontsyd: rrpontsydT != null ? Number(rrpontsydT.toFixed(3)) : null,
+    date: fedLatest?.date || tgaLatest?.date || rrpLatest?.date || null,
+    fed: fedLatest ? { value: fedValue, date: fedLatest.date } : null,
+    tga: tgaLatest ? { value: tgaValue, date: tgaLatest.date } : null,
+    rrp: rrpLatest ? { value: rrpValue, date: rrpLatest.date } : null,
+  };
+}
+
+async function fundingProxyWithRetry() {
+  const upstreamUrl = "https://www.okx.com/api/v5/public/funding-rate?instId=BTC-USDT-SWAP";
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await rawFetch(upstreamUrl, {
+        headers: OKX_HEADERS,
+        accept: "application/json",
+      });
+      const body = await response.text();
+
+      if (response.ok) {
+        return new Response(body, {
+          status: response.status,
+          headers: { "Content-Type": "application/json", ...CORS },
+        });
+      }
+
+      if (isRateLimited(response.status, body) && attempt === 0) {
+        await sleep(500);
+        continue;
+      }
+
+      if (isRateLimited(response.status, body)) {
+        return jsonResponse({ error: "rate_limited" });
+      }
+
+      return new Response(body, {
+        status: response.status,
+        headers: { "Content-Type": "application/json", ...CORS },
+      });
+    } catch (error) {
+      if (attempt === 0) {
+        await sleep(500);
+        continue;
+      }
+      return jsonResponse({ error: "rate_limited", message: error.message });
+    }
+  }
+
+  return jsonResponse({ error: "rate_limited" });
+}
+
+async function buildMacroSnapshot(env) {
+  const now = new Date().toISOString();
+  const errors = [];
+  const readTask = async (key, task, fallback) => {
+    try {
+      return await task();
+    } catch (error) {
+      errors.push({ key, message: error?.message || "fetch_failed" });
+      return fallback;
+    }
+  };
+
+  const walcl = await readTask("fred_walcl", () => fetchFredObservationsLive("WALCL", env), []);
+  const tga = await readTask("fred_tga", () => fetchFredObservationsLive("WTREGEN", env), []);
+  const rrp = await readTask("fred_rrp", () => fetchFredObservationsLive("RRPONTSYD", env), []);
+  const tvl = await readTask("llama_chains", () => fetchChainTvlsLive(), { solana: null, ethereum: null, bsc: null });
+  const fgPayload = await readTask("fg", () => fetchFearGreedLive("1"), null);
+  const btcSnapshot = await readTask("btc_snapshot", () => fetchBtcSnapshotLive(now), {
     price: null,
     change_24h: null,
-    source: 'none',
-    ma_200: maInfo?.ma_200 ?? null,
-    ma_source: maInfo?.source || null,
+    source: null,
+    ma_200: null,
+    ma_source: null,
     vs_ma_200_pct: null,
-    updated_at: maInfo?.updated_at || new Date().toISOString(),
-  };
-}
-
-// ── Meme 总市值：单独请求 CoinGecko（不和 BTC 并发，避免限速）──
-async function fetchMemeMcap() {
-  for (let i = 0; i < 2; i++) {
-    try {
-      const res = await fetch('https://api.coingecko.com/api/v3/coins/categories', UA);
-      if (res.status === 429) {
-        await new Promise(r => setTimeout(r, 2000));
-        continue;
-      }
-      const text = await res.text();
-      if (!text || !text.trim()) continue;
-      const data = JSON.parse(text);
-      if (Array.isArray(data)) {
-        const meme = data.find(c => c.id === 'meme-token');
-        if (meme) {
-          return {
-            mcap: meme.market_cap || null,
-            mcap_change_24h: meme.market_cap_change_24h || null,
-            volume_24h: meme.volume_24h || null,
-            source: 'coingecko',
-          };
-        }
-      }
-      if (data?.status?.error_message) {
-        return { mcap: null, note: data.status.error_message, source: 'coingecko_error' };
-      }
-    } catch {}
-    if (i === 0) await new Promise(r => setTimeout(r, 2000));
-  }
-  return { mcap: null, source: 'coingecko_limited' };
-}
-
-function pickMemeCategory(categories = []) {
-  const chainHints = ['tron', 'solana', 'base', 'bsc', 'ethereum', 'arbitrum', 'avalanche', 'sui', 'ton', 'polygon'];
-  const scored = categories
-    .filter(item => {
-      const text = `${item?.name || ''} ${item?.title || ''} ${item?.slug || ''}`.toLowerCase();
-      return text.includes('meme');
-    })
-    .map((item) => {
-      const text = `${item?.name || ''} ${item?.title || ''} ${item?.slug || ''}`.toLowerCase();
-      let score = 0;
-      if (text === 'memes' || text === 'meme') score += 100;
-      if (item?.name === 'Memes' || item?.title === 'Memes') score += 100;
-      if (text.includes(' memes') || text.startsWith('memes')) score += 20;
-      if (chainHints.some(hint => text.includes(hint))) score -= 50;
-      score += Math.min(Number(item?.num_tokens || 0) / 100, 20);
-      return { item, score };
-    })
-    .sort((a, b) => b.score - a.score);
-  return scored[0]?.item || null;
-}
-
-function mapCmcCoin(item, idx) {
-  const usd = item?.quote?.USD || {};
-  return {
-    rank: item?.cmc_rank || idx + 1,
-    token: item?.symbol || item?.name || `#${idx + 1}`,
-    name: item?.name || null,
-    image: null,
-    price: usd?.price ?? null,
-    market_cap: usd?.market_cap ?? null,
-    change_24h_pct: usd?.percent_change_24h ?? null,
-    change_7d_pct: usd?.percent_change_7d ?? null,
-    volume_24h: usd?.volume_24h ?? null,
-  };
-}
-
-async function fetchMemeTopList(env) {
-  const apiKey = env?.CMC_API_KEY;
-  if (!apiKey) return { items: [], source: 'cmc_not_configured', updated_at: new Date().toISOString(), error: 'CMC_API_KEY not set' };
-
-  try {
-    const categoriesRes = await safeFetchCmc('/v1/cryptocurrency/categories', null, apiKey);
-    const categories = Array.isArray(categoriesRes?.data) ? categoriesRes.data : [];
-    const memeCategory = pickMemeCategory(categories);
-    if (memeCategory?.id) {
-      const categoryRes = await safeFetchCmc('/v1/cryptocurrency/category', { id: memeCategory.id }, apiKey);
-      const coins = Array.isArray(categoryRes?.data?.coins) ? categoryRes.data.coins : [];
-      if (coins.length > 0) {
-        return {
-          source: 'coinmarketcap',
-          updated_at: categoryRes?.data?.last_updated || new Date().toISOString(),
-          items: coins.slice(0, 50).map(mapCmcCoin),
-        };
-      }
-    }
-  } catch {}
-
-  const listingsRes = await safeFetchCmc('/v1/cryptocurrency/listings/latest', {
-    limit: 500,
-    aux: 'tags',
-  }, apiKey);
-  const listings = Array.isArray(listingsRes?.data) ? listingsRes.data : [];
-  const memeListings = listings.filter((item) => {
-    const tags = Array.isArray(item?.tags) ? item.tags.map(tag => String(tag).toLowerCase()) : [];
-    return tags.some(tag => tag === 'memes' || tag === 'meme' || tag.includes('meme'));
+    updated_at: now,
   });
+  const stableHistoryPayload = await readTask("llama_stable_chart", () => fetchLlamaStableChartLive(), []);
+  await sleep(650);
+  const stableSolanaPayload = await readTask("llama_stable_solana", () => fetchLlamaStableChartLive("Solana"), []);
+  await sleep(650);
+  const stableBscPayload = await readTask("llama_stable_bsc", () => fetchLlamaStableChartLive("bsc"), []);
+  await sleep(650);
+  const dexSolanaPayload = await readTask("llama_dex_solana", () => fetchLlamaDexLive("solana"), null);
+  await sleep(650);
+  const dexBasePayload = await readTask("llama_dex_base", () => fetchLlamaDexLive("base"), null);
+  await sleep(650);
+  const dexBscPayload = await readTask("llama_dex_bsc", () => fetchLlamaDexLive("bsc"), null);
+  let memeMarkets = await readTask("cg_markets", () => fetchCgMarketsLive("meme-token", "50", "1"), []);
+  if (!Array.isArray(memeMarkets) || !memeMarkets.length) {
+    memeMarkets = await readTask("coinlore_meme", () => getCoinLoreMemeRows(), []);
+  }
+
+  const fgEntry = Array.isArray(fgPayload?.data) ? fgPayload.data[0] : null;
+
+  const stableRows = Array.isArray(stableHistoryPayload) ? stableHistoryPayload : [];
+  const stableLatest = stableRows[stableRows.length - 1] || null;
+  const stableWeekAgo = stableRows[stableRows.length - 8] || stableRows[0] || null;
+  const stableNow = getStableChartUsd(stableLatest);
+  const stableThen = getStableChartUsd(stableWeekAgo);
+  const stableChange7d = stableNow != null && stableThen != null ? stableNow - stableThen : null;
+  const stableChange7dPct = stableNow != null && stableThen != null && stableThen !== 0
+    ? ((stableNow - stableThen) / stableThen) * 100
+    : null;
+
+  const stableSolana = buildStableChainSummary(stableSolanaPayload);
+  const stableBsc = buildStableChainSummary(stableBscPayload);
+
+  const memeTopRows = Array.isArray(memeMarkets) ? buildMemeRows(memeMarkets) : [];
+  const memeSummary = buildMemeSummary(memeTopRows);
+  const fred = buildFredPayload(walcl, tga, rrp, now);
 
   return {
-    source: 'coinmarketcap_fallback',
-    updated_at: listingsRes?.status?.timestamp || new Date().toISOString(),
-    items: memeListings.slice(0, 50).map(mapCmcCoin),
+    timestamp: now,
+    fear_greed: {
+      value: toNumber(fgEntry?.value),
+      label: fgEntry?.value_classification || null,
+    },
+    btc: btcSnapshot,
+    meme: memeSummary,
+    tvl,
+    stablecoins: {
+      total: stableNow,
+      change_7d: stableChange7d,
+      change_7d_pct: stableChange7dPct,
+    },
+    chain_stablecoins: {
+      solana: { net_inflow_7d: stableSolana.net_inflow_7d },
+      bsc: { net_inflow_7d: stableBsc.net_inflow_7d },
+    },
+    dex_volume: {
+      solana: buildDexSummary(dexSolanaPayload),
+      base: buildDexSummary(dexBasePayload),
+      bsc: buildDexSummary(dexBscPayload),
+    },
+    fred,
+    meme_top: {
+      source: "CoinGecko",
+      updated_at: now,
+      items: memeTopRows,
+    },
+    errors,
   };
-}
-
-// ── 三链 TVL ──
-async function fetchChainTVL() {
-  const data = await safeFetch('https://api.llama.fi/v2/chains');
-  if (!Array.isArray(data)) return { solana: null, ethereum: null, bsc: null };
-  const find = (name) => {
-    const chain = data.find(c => c.name?.toLowerCase() === name.toLowerCase());
-    return chain?.tvl ? parseFloat(chain.tvl.toFixed(0)) : null;
-  };
-  return { solana: find('Solana'), ethereum: find('Ethereum'), bsc: find('BSC') };
-}
-
-// ── 稳定币总量 ──
-async function fetchStablecoins() {
-  const data = await safeFetch('https://stablecoins.llama.fi/stablecoincharts/all?stablecoin=1');
-  let currentTotal = null, weekAgoTotal = null;
-  if (Array.isArray(data) && data.length >= 8) {
-    const latest = data[data.length - 1];
-    const weekAgo = data[data.length - 8];
-    currentTotal = latest?.totalCirculating?.peggedUSD || null;
-    weekAgoTotal = weekAgo?.totalCirculating?.peggedUSD || null;
-  }
-  return {
-    total: currentTotal,
-    total_7d_ago: weekAgoTotal,
-    change_7d: currentTotal && weekAgoTotal ? parseFloat((currentTotal - weekAgoTotal).toFixed(0)) : null,
-    change_7d_pct: currentTotal && weekAgoTotal ? parseFloat(((currentTotal - weekAgoTotal) / weekAgoTotal * 100).toFixed(3)) : null,
-  };
-}
-
-// ── 各链稳定币净流入 ──
-async function fetchChainStablecoins() {
-  const chains = ['Solana', 'BSC', 'Base'];
-  const results = {};
-  for (const chain of chains) {
-    try {
-      const res = await fetch(`https://stablecoins.llama.fi/stablecoincharts/${chain}?stablecoin=1`, UA);
-      const text = await res.text();
-      if (!text || !text.trim() || !text.trim().startsWith('[')) {
-        results[chain.toLowerCase()] = null;
-        continue;
-      }
-      const chartData = JSON.parse(text);
-      if (Array.isArray(chartData) && chartData.length >= 8) {
-        const latest = chartData[chartData.length - 1];
-        const weekAgo = chartData[chartData.length - 8];
-        const currentVal = latest?.totalCirculating?.peggedUSD || 0;
-        const weekAgoVal = weekAgo?.totalCirculating?.peggedUSD || 0;
-        results[chain.toLowerCase()] = {
-          current: parseFloat(currentVal.toFixed(0)),
-          week_ago: parseFloat(weekAgoVal.toFixed(0)),
-          net_inflow_7d: parseFloat((currentVal - weekAgoVal).toFixed(0)),
-        };
-      } else {
-        results[chain.toLowerCase()] = null;
-      }
-    } catch (e) {
-      results[chain.toLowerCase()] = { error: e.message };
-    }
-  }
-  return results;
-}
-
-// ── DEX 交易量：用 /overview/dexs 全局端点再按链过滤 ──
-async function fetchDEXVolume() {
-  const chains = ['Solana', 'Base', 'BSC'];
-  const results = {};
-
-  for (const chain of chains) {
-    try {
-      const res = await fetch(`https://api.llama.fi/overview/dexs/${chain}?excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true`, UA);
-      const text = await res.text();
-      if (!text || !text.trim() || !text.trim().startsWith('{')) {
-        results[chain.toLowerCase()] = null;
-        continue;
-      }
-      const data = JSON.parse(text);
-      results[chain.toLowerCase()] = {
-        total_24h: data?.total24h ? parseFloat(data.total24h.toFixed(0)) : null,
-        total_7d: data?.total7d ? parseFloat(data.total7d.toFixed(0)) : null,
-        change_1d_pct: data?.change_1d != null ? parseFloat(data.change_1d.toFixed(2)) : null,
-      };
-    } catch (e) {
-      results[chain.toLowerCase()] = { error: e.message };
-    }
-  }
-  return results;
-}
-
-// ── FRED ──
-async function fetchFRED(env) {
-  const apiKey = env?.FRED_API_KEY;
-  if (!apiKey) return { error: 'FRED_API_KEY not set', source: 'fred', updated_at: new Date().toISOString(), fed: null, tga: null, rrp: null, gnl: null };
-  const series = { fed: 'WALCL', tga: 'WTREGEN', rrp: 'RRPONTSYD' };
-  const results = { source: 'fred', updated_at: new Date().toISOString() };
-  for (const [key, seriesId] of Object.entries(series)) {
-    try {
-      const data = await safeFetch(
-        `https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&api_key=${apiKey}&file_type=json&sort_order=desc&limit=4`
-      );
-      const obs = data?.observations;
-      if (obs?.length > 0) {
-        const valid = obs.find(o => o.value !== '.');
-        results[key] = { value: valid ? parseFloat(valid.value) : null, date: valid?.date || null };
-      } else { results[key] = null; }
-    } catch (e) { results[key] = { error: e.message }; }
-  }
-  if (results.fed?.value != null && results.tga?.value != null && results.rrp?.value != null) {
-    const fedT = results.fed.value / 1e6;
-    const tgaT = results.tga.value / 1e6;
-    const rrpT = results.rrp.value / 1e3;
-    results.gnl = { value_t: parseFloat((fedT - tgaT - rrpT).toFixed(4)), date: results.fed?.date || results.tga?.date || results.rrp?.date || null };
-  } else { results.gnl = null; }
-  return results;
-}
-
-// ── 主入口 ──
-async function handleRequest(request, env) {
-  const url = new URL(request.url);
-  const path = url.pathname;
-  const corsHeaders = buildCorsHeaders(request);
-
-  if (request.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
-
-  try {
-    if (path === '/api/all') {
-      // 先并发拉不会互相限速的源
-      const [fearGreed, btc, chainTVL, stablecoins, chainStables, dexVolume, fred] =
-        await Promise.all([
-          safe(fetchFearGreed),
-          safe(fetchBTCPrice),
-          safe(fetchChainTVL),
-          safe(fetchStablecoins),
-          safe(fetchChainStablecoins),
-          safe(fetchDEXVolume),
-          safe(() => fetchFRED(env)),
-        ]);
-
-      // CoinGecko 单独串行请求，避免和 BTC 的 CoinGecko 备用源并发触发限速
-      const memeMcap = await safe(fetchMemeMcap);
-      const memeTop = await safe(() => fetchMemeTopList(env));
-
-      return new Response(JSON.stringify({
-        timestamp: new Date().toISOString(),
-        fear_greed: fearGreed,
-        btc: btc,
-        meme: memeMcap,
-        tvl: chainTVL,
-        stablecoins: stablecoins,
-        chain_stablecoins: chainStables,
-        dex_volume: dexVolume,
-        fred: fred,
-        meme_top: memeTop,
-      }, null, 2), { headers: corsHeaders });
-    }
-
-    if (path === '/api/fear-greed') return new Response(JSON.stringify(await safe(fetchFearGreed)), { headers: corsHeaders });
-    if (path === '/api/btc') return new Response(JSON.stringify(await safe(fetchBTCPrice)), { headers: corsHeaders });
-    if (path === '/api/tvl') return new Response(JSON.stringify(await safe(fetchChainTVL)), { headers: corsHeaders });
-    if (path === '/api/stablecoins') return new Response(JSON.stringify(await safe(fetchStablecoins)), { headers: corsHeaders });
-    if (path === '/api/dex') return new Response(JSON.stringify(await safe(fetchDEXVolume)), { headers: corsHeaders });
-    if (path === '/api/fred') return new Response(JSON.stringify(await safe(() => fetchFRED(env))), { headers: corsHeaders });
-    if (path === '/api/meme') return new Response(JSON.stringify(await safe(fetchMemeMcap)), { headers: corsHeaders });
-    if (path === '/api/meme-top') return new Response(JSON.stringify(await safe(() => fetchMemeTopList(env))), { headers: corsHeaders });
-    if (path === '/api/alpha-support') {
-      const chain = url.searchParams.get('chain');
-      const address = url.searchParams.get('address');
-      return new Response(JSON.stringify(await safe(() => fetchAlphaSupport(env, chain, address))), { headers: corsHeaders });
-    }
-
-    if (path === '/' || path === '') {
-      return new Response(JSON.stringify({
-        status: 'ok', service: 'LiquidityOS Data Worker v4',
-        endpoints: ['/api/all', '/api/fear-greed', '/api/btc', '/api/tvl', '/api/stablecoins', '/api/dex', '/api/fred', '/api/meme', '/api/meme-top', '/api/alpha-support'],
-      }, null, 2), { headers: corsHeaders });
-    }
-    return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: corsHeaders });
-  } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders });
-  }
 }
 
 export default {
-  async fetch(request, env, ctx) { return handleRequest(request, env); },
+  async fetch(request, env) {
+    if (request.method === "OPTIONS") {
+      return new Response(null, { headers: CORS });
+    }
+
+    const { pathname, searchParams } = new URL(request.url);
+
+    try {
+      if (pathname === "/api/fg") {
+        const limit = searchParams.get("limit") || "5";
+        const payload = await getFearGreed(limit);
+        return jsonResponse(payload, 200, { "Cache-Control": `public, max-age=${CACHE_TTL.fg}` });
+      }
+
+      if (pathname === "/api/funding") {
+        return fundingProxyWithRetry();
+      }
+
+      if (pathname === "/api/oi") {
+        return proxy("https://www.okx.com/api/v5/public/open-interest?instType=SWAP&instId=BTC-USDT-SWAP", "application/json", OKX_HEADERS);
+      }
+
+      if (pathname.startsWith("/api/fred/")) {
+        const series = pathname.slice("/api/fred/".length);
+        const observations = await getFredObservations(series, env);
+        return jsonResponse({ observations }, 200, { "Cache-Control": `public, max-age=${CACHE_TTL.fred}` });
+      }
+
+      if (pathname === "/api/cg/markets") {
+        const category = searchParams.get("category") || "meme-token";
+        const perPage = searchParams.get("per_page") || "50";
+        const page = searchParams.get("page") || "1";
+        const payload = await getCgMarkets(category, perPage, page);
+        return jsonResponse(payload, 200, { "Cache-Control": `public, max-age=${CACHE_TTL.cg}` });
+      }
+
+      if (pathname.startsWith("/api/cg/chart/")) {
+        const coinId = pathname.slice("/api/cg/chart/".length);
+        const days = searchParams.get("days") || "30";
+        const interval = searchParams.get("interval") || "";
+        const payload = await getCgChart(coinId, days, interval);
+        return jsonResponse(payload, 200, { "Cache-Control": `public, max-age=${CACHE_TTL.cgChart}` });
+      }
+
+      if (pathname.startsWith("/api/llama/dex/")) {
+        const chain = pathname.slice("/api/llama/dex/".length);
+        const payload = await getLlamaDex(chain);
+        return jsonResponse(payload, 200, { "Cache-Control": `public, max-age=${CACHE_TTL.llama}` });
+      }
+
+      if (pathname === "/api/llama/stablecoins") {
+        return proxy("https://stablecoins.llama.fi/stablecoins?includePrices=true");
+      }
+
+      if (pathname === "/api/llama/stable-chart") {
+        const payload = await getLlamaStableChart();
+        return jsonResponse(payload, 200, { "Cache-Control": `public, max-age=${CACHE_TTL.llama}` });
+      }
+
+      if (pathname.startsWith("/api/llama/stable-chart/")) {
+        const chain = pathname.slice("/api/llama/stable-chart/".length);
+        const payload = await getLlamaStableChart(chain);
+        return jsonResponse(payload, 200, { "Cache-Control": `public, max-age=${CACHE_TTL.llama}` });
+      }
+
+      if (pathname === "/api/all") {
+        const payload = await getCachedJson("/api/all", CACHE_TTL.all, async () => buildMacroSnapshot(env));
+        return jsonResponse(payload, 200, { "Cache-Control": `public, max-age=${CACHE_TTL.all}` });
+      }
+
+      return jsonResponse({ error: "unknown_route", pathname }, 404);
+    } catch (error) {
+      return jsonResponse({ error: "proxy_failed", message: error.message }, 500);
+    }
+  },
 };
