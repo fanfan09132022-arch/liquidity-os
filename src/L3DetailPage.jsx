@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CartesianGrid,
-  ComposedChart,
   Legend,
   Line,
   LineChart,
@@ -21,15 +20,12 @@ const C = {
   red: "#FF3B30", yellow: "#FFCC00", purple: "#AF52DE", teal: "#30B0C7",
 };
 
-const COINGECKO_TOP10_ENDPOINT = `${WORKER}/api/cg/markets?category=meme-token&per_page=10&page=1`;
-const COINGECKO_TOP50_ENDPOINT = `${WORKER}/api/cg/markets?category=meme-token&per_page=50&page=1`;
 const DEFILLAMA_ENDPOINTS = {
   solana: `${WORKER}/api/llama/dex/solana`,
   bsc: `${WORKER}/api/llama/dex/bsc`,
   base: `${WORKER}/api/llama/dex/base`,
 };
 
-const MEME_PERIOD_PARAMS = { "1D": 1, "1W": 7, "1M": 30, "3M": 90, "6M": 180, "1Y": 365 };
 const DEX_PERIOD_DAYS = { "1W": 7, "1M": 30, "3M": 90, "6M": 180, "1Y": 365, ALL: null };
 
 const CHAIN_META = {
@@ -154,10 +150,6 @@ function formatHourMinute(value) {
   return `${hours}:${minutes}`;
 }
 
-function formatTickByPeriod(period, value) {
-  return period === "1D" ? formatHourMinute(value) : formatMonthDay(value);
-}
-
 function getXAxisInterval(period) {
   if (period === "1D") return "preserveStartEnd";
   if (period === "1W") return 1;
@@ -172,6 +164,38 @@ function getXAxisInterval(period) {
 function safeDivide(numerator, denominator) {
   if (numerator == null || denominator == null || denominator === 0) return null;
   return numerator / denominator;
+}
+
+function slugifyCoinId(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[.'"]/g, "")
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+const COINGECKO_ID_MAP = {
+  DOGE: "dogecoin",
+  SHIB: "shiba-inu",
+  PEPE: "pepe",
+  BONK: "bonk",
+  PENGU: "pudgy-penguins",
+  TRUMP: "official-trump",
+  PUMP: "pump-fun",
+  M: "memecore",
+  SIREN: "siren",
+  PIPPIN: "pippin",
+};
+
+function resolveCoinGeckoId(item) {
+  const symbol = String(item?.token || item?.symbol || "").toUpperCase();
+  if (COINGECKO_ID_MAP[symbol]) return COINGECKO_ID_MAP[symbol];
+  const nameSlug = slugifyCoinId(item?.name);
+  if (nameSlug) return nameSlug;
+  const tokenSlug = slugifyCoinId(item?.token || item?.symbol);
+  return tokenSlug || null;
 }
 
 function sortByTimestampAsc(points) {
@@ -397,13 +421,8 @@ function CustomTooltip({ active, label, payload, formatters = {} }) {
   );
 }
 
-export default function L3DetailPage({ onBack }) {
+export default function L3DetailPage({ onBack, memeTopData }) {
   const [memeSummaryState, setMemeSummaryState] = useState({ loading: true, error: "", data: null });
-  const [memeTopIdsState, setMemeTopIdsState] = useState({ loading: true, error: "", ids: [] });
-  const [memePeriod, setMemePeriod] = useState("1M");
-  const [memeChartState, setMemeChartState] = useState({ loading: true, error: "", rawData: [] });
-  const memeTopIdsRef = useRef([]);
-  const memeChartCacheRef = useRef({});
 
   const [dexState, setDexState] = useState({ loading: true, error: "", data: null });
   const [dexPeriod, setDexPeriod] = useState("1M");
@@ -411,107 +430,25 @@ export default function L3DetailPage({ onBack }) {
   const [radarState, setRadarState] = useState({ loading: true, error: "", rows: [] });
   const [hoveredRow, setHoveredRow] = useState(null);
 
-  const loadMemeSummary = useCallback(async () => {
-    setMemeSummaryState((prev) => ({ ...prev, loading: true, error: "" }));
-    try {
-      const rows = await fetchJSONWithFallback(`${WORKER}/api/cg/markets?category=meme-token&per_page=250&page=1`);
-      if (!Array.isArray(rows) || !rows.length) throw new Error("meme summary missing");
-      const marketCap = rows.reduce((sum, item) => sum + (toNumber(item?.market_cap) || 0), 0);
-      const weighted24h = rows.reduce((sum, item) => {
-        const cap = toNumber(item?.market_cap);
-        const change = toNumber(item?.price_change_percentage_24h);
-        return cap != null && change != null ? sum + (cap * change) : sum;
-      }, 0);
-      setMemeSummaryState({
-        loading: false,
-        error: "",
-        data: {
-          marketCap,
-          change24h: marketCap > 0 ? weighted24h / marketCap : null,
-          change7d: null,
-        },
-      });
-    } catch {
-      setMemeSummaryState({ loading: false, error: "数据暂时不可用", data: null });
-    }
-  }, []);
-
-  const loadMemeTopIds = useCallback(async () => {
-    setMemeTopIdsState((prev) => ({ ...prev, loading: true, error: "" }));
-    try {
-      const payload = await fetchJSONWithFallback(COINGECKO_TOP10_ENDPOINT);
-      const ids = (Array.isArray(payload) ? payload : [])
-        .map((item) => item?.id)
-        .filter((id) => typeof id === "string" && id);
-      if (!ids.length) throw new Error("top10 ids empty");
-      memeTopIdsRef.current = ids;
-      setMemeTopIdsState({ loading: false, error: "", ids });
-      return ids;
-    } catch {
-      memeTopIdsRef.current = [];
-      setMemeTopIdsState({ loading: false, error: "数据暂时不可用", ids: [] });
-      throw new Error("top10 ids unavailable");
-    }
-  }, []);
-
-  const loadMemeChart = useCallback(async () => {
-    setMemeChartState((prev) => ({ ...prev, loading: true, error: "" }));
-    try {
-      const dataDays = memePeriod === "1D"
-        ? 1
-        : memePeriod === "1W"
-          ? 7
-          : memePeriod === "1M"
-            ? 30
-            : 365;
-      const cachedData = memeChartCacheRef.current[dataDays];
-      if (cachedData?.length) {
-        setMemeChartState({ loading: false, error: "", rawData: cachedData });
-        return;
-      }
-
-      const ids = memeTopIdsRef.current.length ? memeTopIdsRef.current : await loadMemeTopIds();
-      const days = dataDays;
-      const memeUrls = ids.map((id) => `${WORKER}/api/cg/chart/${id}?days=${days}`);
-      const [btcPayload, memeResults] = await Promise.all([
-        fetchJSONWithFallback(`${WORKER}/api/cg/chart/bitcoin?days=${days}`),
-        fetchJSONInBatches(memeUrls, 3),
-      ]);
-
-      const memePayloads = memeResults.filter(Boolean);
-      const validLengths = memePayloads
-        .map((payload) => (Array.isArray(payload?.market_caps) ? payload.market_caps.length : null))
-        .filter((value) => value != null);
-      const btcPrices = Array.isArray(btcPayload?.prices) ? btcPayload.prices : [];
-      const referenceLength = Math.min(...validLengths, btcPrices.length);
-
-      if (!memePayloads.length || !Number.isFinite(referenceLength) || referenceLength <= 0) {
-        throw new Error("meme chart empty");
-      }
-
-      const rawData = Array.from({ length: referenceLength }, (_, index) => {
-        const btcPoint = btcPrices[index];
-        const timestamp = Array.isArray(btcPoint) ? btcPoint[0] : null;
-        const memeTotal = memePayloads.reduce((sum, payload) => {
-          const point = payload?.market_caps?.[index];
-          return sum + (Array.isArray(point) ? (toNumber(point[1]) || 0) : 0);
-        }, 0);
-
-        return {
-          timestamp,
-          date: formatTickByPeriod(memePeriod, timestamp),
-          meme: memeTotal || null,
-          btc: Array.isArray(btcPoint) ? toNumber(btcPoint[1]) : null,
-        };
-      }).filter((item) => item.timestamp != null && item.meme != null && item.btc != null);
-
-      if (!rawData.length) throw new Error("meme chart empty");
-      memeChartCacheRef.current[dataDays] = rawData;
-      setMemeChartState({ loading: false, error: "", rawData });
-    } catch {
-      setMemeChartState({ loading: false, error: "数据暂时不可用", rawData: [] });
-    }
-  }, [loadMemeTopIds, memePeriod]);
+  const topRowsFromMacro = useMemo(() => {
+    const items = Array.isArray(memeTopData?.items) ? memeTopData.items : [];
+    return items.map((item, index) => {
+      const marketCap = toNumber(item?.market_cap);
+      const totalVolume = toNumber(item?.volume_24h ?? item?.total_volume);
+      return {
+        rank: toNumber(item?.rank) ?? index + 1,
+        id: item?.id || resolveCoinGeckoId(item),
+        symbol: String(item?.token || item?.symbol || "—").toUpperCase(),
+        name: item?.name || "—",
+        image: item?.image || item?.logo || null,
+        marketCap,
+        totalVolume,
+        change24h: toNumber(item?.change_24h_pct ?? item?.price_change_percentage_24h),
+        change7d: toNumber(item?.change_7d_pct ?? item?.price_change_percentage_7d_in_currency),
+        turnover: safeDivide(totalVolume, marketCap),
+      };
+    });
+  }, [memeTopData]);
 
   const loadDexVolumes = useCallback(async () => {
     setDexState({ loading: true, error: "", data: null });
@@ -545,56 +482,36 @@ export default function L3DetailPage({ onBack }) {
     }
   }, []);
 
-  const loadRadar = useCallback(async () => {
-    setRadarState({ loading: true, error: "", rows: [] });
-    try {
-      const payload = await fetchJSONWithFallback(COINGECKO_TOP50_ENDPOINT);
-      const rows = (Array.isArray(payload) ? payload : []).map((item, index) => {
-        const marketCap = toNumber(item?.market_cap);
-        const totalVolume = toNumber(item?.total_volume);
-        return {
-          rank: index + 1,
-          symbol: String(item?.symbol || "—").toUpperCase(),
-          name: item?.name || "—",
-          image: item?.image || null,
-          marketCap,
-          totalVolume,
-          change24h: toNumber(item?.price_change_percentage_24h),
-          turnover: safeDivide(totalVolume, marketCap),
-        };
-      });
-      if (!rows.length) throw new Error("top50 empty");
-      setRadarState({ loading: false, error: "", rows });
-    } catch {
-      setRadarState({ loading: false, error: "数据暂时不可用", rows: [] });
-    }
-  }, []);
-
   useEffect(() => {
     loadDexVolumes();
   }, [loadDexVolumes]);
 
   useEffect(() => {
-    loadMemeSummary();
-    const timer = window.setTimeout(() => {
-      loadRadar();
-    }, 1200);
-    return () => window.clearTimeout(timer);
-  }, [loadMemeSummary, loadRadar]);
+    if (topRowsFromMacro.length) {
+      const marketCap = topRowsFromMacro.reduce((sum, item) => sum + (item.marketCap || 0), 0);
+      const topTen = topRowsFromMacro.slice(0, 10);
+      const avg24h = topTen.length
+        ? topTen.reduce((sum, item) => sum + (item.change24h || 0), 0) / topTen.length
+        : null;
+      const avg7d = topTen.length
+        ? topTen.reduce((sum, item) => sum + (item.change7d || 0), 0) / topTen.length
+        : null;
+      setMemeSummaryState({
+        loading: false,
+        error: "",
+        data: {
+          marketCap: marketCap || null,
+          change24h: avg24h,
+          change7d: avg7d,
+        },
+      });
+      setRadarState({ loading: false, error: "", rows: topRowsFromMacro });
+      return;
+    }
 
-  useEffect(() => {
-    loadMemeChart();
-  }, [loadMemeChart]);
-
-  const memeVisibleChartData = useMemo(() => {
-    const days = MEME_PERIOD_PARAMS[memePeriod] || 30;
-    const scoped = clampToRecentDays(memeChartState.rawData, days);
-    const normalized = memePeriod === "1D" ? scoped : collapseToDaily(scoped);
-    return normalized.map((point) => ({
-      ...point,
-      date: formatTickByPeriod(memePeriod, point.timestamp),
-    }));
-  }, [memeChartState.rawData, memePeriod]);
+    setMemeSummaryState({ loading: false, error: "数据暂时不可用", data: null });
+    setRadarState({ loading: false, error: "数据暂时不可用", rows: [] });
+  }, [topRowsFromMacro]);
 
   const dexChartData = useMemo(() => {
     if (!dexState.data?.chains) return [];
@@ -645,14 +562,7 @@ export default function L3DetailPage({ onBack }) {
           subtitle="数据来源：CoinGecko"
           loading={false}
           error=""
-          onRetry={loadMemeSummary}
-          action={(
-            <PeriodButtons
-              options={Object.keys(MEME_PERIOD_PARAMS)}
-              active={memePeriod}
-              onChange={setMemePeriod}
-            />
-          )}
+          onRetry={null}
         >
           <div style={{ display: "grid", gap: 16 }}>
             <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
@@ -670,70 +580,15 @@ export default function L3DetailPage({ onBack }) {
                 </div>
               </div>
             </div>
-
-            <ChartStateBlock
-              loading={memeChartState.loading}
-              error={memeChartState.error}
-              onRetry={loadMemeChart}
-              height={260}
-            >
-              <div style={{ height: 260, borderRadius: 16, background: "rgba(120,120,128,0.04)", padding: "10px 6px 0" }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={memeVisibleChartData} margin={{ top: 18, right: 12, left: 2, bottom: 16 }}>
-                    <CartesianGrid stroke="rgba(60,60,67,0.08)" vertical={false} />
-                    <XAxis
-                      dataKey="date"
-                      tick={{ fill: "rgba(60,60,67,0.6)", fontSize: 11 }}
-                      tickLine={false}
-                      axisLine={false}
-                      interval={getXAxisInterval(memePeriod)}
-                      minTickGap={24}
-                    />
-                    <YAxis
-                      yAxisId="meme"
-                      tick={{ fill: "rgba(60,60,67,0.6)", fontSize: 11 }}
-                      tickFormatter={fmtBillions}
-                      tickLine={false}
-                      axisLine={false}
-                      width={48}
-                    />
-                    <YAxis
-                      yAxisId="btc"
-                      orientation="right"
-                      tick={{ fill: "rgba(60,60,67,0.6)", fontSize: 11 }}
-                      tickFormatter={fmtThousandsUsd}
-                      tickLine={false}
-                      axisLine={false}
-                      width={44}
-                    />
-                    <Tooltip content={<CustomTooltip formatters={{ meme: fmtNum, btc: (v) => `$${fmtNum(v)}` }} />} />
-                    <Legend verticalAlign="bottom" align="left" iconType="circle" wrapperStyle={{ paddingTop: 8, fontSize: 11 }} />
-                    <Line
-                      yAxisId="meme"
-                      type="monotone"
-                      dataKey="meme"
-                      name="Meme 市值（Top 10 动态加总）"
-                      stroke="#34C759"
-                      strokeWidth={2.5}
-                      dot={false}
-                      activeDot={{ r: 4 }}
-                      connectNulls
-                    />
-                    <Line
-                      yAxisId="btc"
-                      type="monotone"
-                      dataKey="btc"
-                      name="BTC 价格"
-                      stroke="#FF9500"
-                      strokeWidth={2.5}
-                      dot={false}
-                      activeDot={{ r: 4 }}
-                      connectNulls
-                    />
-                  </ComposedChart>
-                </ResponsiveContainer>
+            <div style={{ borderRadius: 16, background: "rgba(120,120,128,0.04)", padding: "18px 16px", display: "grid", gap: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>历史走势图暂不可用</div>
+              <div style={{ fontSize: 12, lineHeight: 1.6, color: C.labelTer }}>
+                CoinGecko 免费 API 在前端详情页场景下存在限速，当前只展示实时快照。
               </div>
-            </ChartStateBlock>
+              <div style={{ fontSize: 12, lineHeight: 1.6, color: C.labelTer }}>
+                历史趋势图需要更稳定的数据源或付费 API，后续再单独恢复。
+              </div>
+            </div>
           </div>
         </DataStateCard>
 
@@ -812,12 +667,7 @@ export default function L3DetailPage({ onBack }) {
           subtitle="按 CoinGecko 市值榜读取 Top 50，重点看 24h 波动与换手率。"
           loading={radarState.loading}
           error={radarState.error}
-          onRetry={loadRadar}
-          action={(
-            <button type="button" onClick={loadRadar} style={refreshButtonStyle}>
-              ↻ 刷新
-            </button>
-          )}
+          onRetry={null}
         >
           <div style={{ display: "grid", gap: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 12, background: "rgba(15,23,42,0.04)", flexWrap: "wrap" }}>

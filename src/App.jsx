@@ -1025,8 +1025,6 @@ export default function App() {
   const [historyFilter, setHistoryFilter] = useState("all");
   const [historySummaries, setHistorySummaries] = useState([]);
   const [trendSeries, setTrendSeries] = useState({ btc: [], l1: [], l2: [], l3: [], fg: [] });
-  const [showAllMemeTop, setShowAllMemeTop] = useState(false);
-  const [top50BrokenIcons, setTop50BrokenIcons] = useState({});
   const [showSystemStatus, setShowSystemStatus] = useState(false);
   const [saveState, setSaveState] = useState({ tone: "idle", label: "未保存", detail: "等待输入变化" });
   const [cacheState, setCacheState] = useState({ tone: "idle", label: "未读取", detail: "当天点击“更新数据”后按默认策略更新" });
@@ -1384,13 +1382,6 @@ export default function App() {
   const fredSource = macro?.fred?.source || "FRED";
   const fredDate = macro?.fred?.gnl?.date || macro?.fred?.fed?.date || macro?.fred?.tga?.date || macro?.fred?.rrp?.date || null;
   const fredUpdatedAt = macro?.fred?.updated_at || null;
-  const memeTopItems = macro?.meme_top?.items || [];
-  const visibleMemeTopItems = showAllMemeTop ? memeTopItems : memeTopItems.slice(0, 6);
-  const top50SourceLabel = macro?.meme_top?.source || "CMC";
-  const top50UpdatedLabel = macro?.meme_top?.updated_at ? formatTimeLabel(macro.meme_top.updated_at) : macroTime || "—";
-  useEffect(() => {
-    setTop50BrokenIcons({});
-  }, [macro?.meme_top?.updated_at, macro?.meme_top?.source, memeTopItems.length]);
   const dataFreshLabel = macroLoading ? "更新中" : macroTime ? "已更新" : "待更新";
   const watchActiveCount = watchlist.filter((row) => String(row?.token || "").trim()).length;
   const alphaFilledCount = alphaCards.filter((card) => String(card?.token || "").trim()).length;
@@ -1602,7 +1593,7 @@ export default function App() {
     return <L2DetailPage onBack={() => setCurrentPage("main")} />;
   }
   if (currentPage === "l3") {
-    return <L3DetailPage onBack={() => setCurrentPage("main")} />;
+    return <L3DetailPage onBack={() => setCurrentPage("main")} memeTopData={macro?.meme_top} />;
   }
 
   return (
@@ -1977,7 +1968,7 @@ export default function App() {
                 </div>
                 <input value={fgVal} onChange={(e) => { markDirty(); setFgVal(e.target.value.replace(/\D/, "")); }} maxLength={3} placeholder="—" className="lo-fg-card-input" />
               </div>
-              <div style={{ height: 10, borderRadius: 5, background: "linear-gradient(90deg,#FF3B30 0%,#FF9500 38%,#FFCC00 58%,#34C759 100%)", position: "relative" }}>{fgVal && <div style={{ position: "absolute", top: "50%", left: Math.max(2, Math.min(98, parseInt(fgVal) || 0)) + "%", transform: "translate(-50%,-50%)", width: 18, height: 18, borderRadius: "50%", background: "#fff", boxShadow: "0 2px 8px rgba(0,0,0,0.18)", border: "1.5px solid rgba(0,0,0,0.07)", transition: "left 0.8s cubic-bezier(0.34,1.56,0.64,1)" }} />}</div>
+              <div style={{ height: 10, borderRadius: 5, background: "linear-gradient(90deg,#FF3B30 0%,#FF9500 38%,#FFCC00 58%,#34C759 100%)", position: "relative" }}>{fgVal && <div style={{ position: "absolute", top: "50%", left: `${Math.max(2, Math.min(98, Number(fgVal) || 0))}%`, transform: "translate(-50%,-50%)", width: 18, height: 18, borderRadius: "50%", background: "#fff", boxShadow: "0 2px 8px rgba(0,0,0,0.18)", border: "1.5px solid rgba(0,0,0,0.07)", transition: "left 0.8s cubic-bezier(0.34,1.56,0.64,1)" }} />}</div>
               <div className="lo-fg-card-scale">{["极惧", "恐惧", "中性", "贪婪", "极贪"].map((l) => <span key={l}>{l}</span>)}</div>
               <div className="lo-context-card-foot">F&G 评分 {fgSignal.score.toFixed(2)} · {fgSignal.reason}</div>
             </div>
@@ -2135,105 +2126,6 @@ export default function App() {
               </div>
             </div>
 
-            <div className="lo-workbench-panel lo-panel-soft lo-l4-reference-panel lo-workbench-panel-reference">
-              <div className="lo-workbench-subhead">
-                <div>
-                  <div className="lo-workbench-role-pill ref">参考区</div>
-                  <div className="lo-workbench-side-title">Top 50 Meme 市场雷达</div>
-                  <div className="lo-workbench-side-copy">只负责自动扫市场热度、涨跌与成交节奏，作为外部环境雷达使用，不和前两块争主位。</div>
-                </div>
-                {memeTopItems.length > 6 && (
-                  <ActionButton kind="text" onClick={() => setShowAllMemeTop((v) => !v)}>
-                    {showAllMemeTop ? "收起榜单" : `展开全榜 (${memeTopItems.length})`}
-                  </ActionButton>
-                )}
-              </div>
-
-              <div className="lo-top50-meta-bar lo-top50-meta-bar-reference">
-                <div className="lo-top50-meta-pills">
-                  <div className="lo-top50-meta-pill">市场参考</div>
-                  <div className="lo-top50-meta-pill">显示 {visibleMemeTopItems.length} / {memeTopItems.length || 50}</div>
-                </div>
-                <div className="lo-top50-caption">数据源 {top50SourceLabel} · 更新于 {top50UpdatedLabel}</div>
-              </div>
-
-              {memeTopItems.length === 0 ? (
-                <div className="lo-top50-empty">更新数据后，这里会出现自动市场参考榜单，先帮你扫热度，再回到主区和 Alpha 继续判断。</div>
-              ) : (
-                <div className="lo-scroll-table lo-top50-table lo-top50-table-reference">
-                  <table className="lo-top50-grid-table">
-                    <colgroup>
-                      <col style={{ width: "58px" }} />
-                      <col style={{ width: "30%" }} />
-                      <col style={{ width: "16%" }} />
-                      <col style={{ width: "17%" }} />
-                      <col style={{ width: "11%" }} />
-                      <col style={{ width: "11%" }} />
-                      <col style={{ width: "15%" }} />
-                    </colgroup>
-                    <thead>
-                      <tr className="lo-top50-head">
-                        <th className="lo-top50-head-rank">Rank</th>
-                        <th className="lo-top50-head-token">Token</th>
-                        <th className="lo-top50-head-num">Price</th>
-                        <th className="lo-top50-head-num">MCap</th>
-                        <th className="lo-top50-head-num">24h</th>
-                        <th className="lo-top50-head-num">7d</th>
-                        <th className="lo-top50-head-num">Vol 24h</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleMemeTopItems.map((item) => {
-                        const rankValue = Number(item.rank);
-                        const rankTone = Number.isFinite(rankValue) && rankValue <= 3 ? "top" : Number.isFinite(rankValue) && rankValue <= 10 ? "hot" : "";
-                        const iconKey = `${item.rank}-${item.token || item.name || "token"}`;
-                        const iconSrc = item.image && !top50BrokenIcons[iconKey] ? item.image : null;
-                        const fallbackPalette = getTop50FallbackPalette(item.token || item.name || String(item.rank || ""));
-                        return (
-                          <tr key={`${item.rank}-${item.token}`} className="lo-top50-row">
-                            <td className="lo-top50-rank-cell">
-                              <span className={`lo-top50-rank-badge${rankTone ? ` ${rankTone}` : ""}`}>{item.rank || "—"}</span>
-                            </td>
-                            <td className="lo-top50-token-cell">
-                              <div
-                                className={`lo-top50-token-avatar${iconSrc ? " has-image" : " is-fallback"}`}
-                                style={{
-                                  "--lo-top50-fallback-top": fallbackPalette.bgTop,
-                                  "--lo-top50-fallback-bottom": fallbackPalette.bgBottom,
-                                  "--lo-top50-fallback-core": fallbackPalette.core,
-                                  "--lo-top50-fallback-mark": fallbackPalette.mark,
-                                }}
-                              >
-                                {iconSrc ? (
-                                  <img
-                                    className="lo-top50-token-img"
-                                    src={iconSrc}
-                                    alt={item.token || item.name || "token"}
-                                    loading="lazy"
-                                    onError={() => setTop50BrokenIcons((prev) => ({ ...prev, [iconKey]: true }))}
-                                  />
-                                ) : (
-                                  <span className="lo-top50-token-fallback" aria-hidden="true" />
-                                )}
-                              </div>
-                              <div className="lo-top50-token-copy">
-                                <div className="lo-top50-token-symbol">{item.token || "—"}</div>
-                                <div className="lo-top50-token-name">{item.name || "—"}</div>
-                              </div>
-                            </td>
-                            <td className="lo-top50-num-cell">{fmtTop50Price(item.price)}</td>
-                            <td className="lo-top50-num-cell">{fmtB(item.market_cap)}</td>
-                            <td className={`lo-top50-num-cell lo-top50-change-cell ${item.change_24h_pct >= 0 ? "up" : "down"}`}>{fmtPct(item.change_24h_pct)}</td>
-                            <td className={`lo-top50-num-cell lo-top50-change-cell ${item.change_7d_pct >= 0 ? "up" : "down"}`}>{fmtPct(item.change_7d_pct)}</td>
-                            <td className="lo-top50-num-cell">{fmtB(item.volume_24h)}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
           </div>
         </section>
 
