@@ -55,6 +55,11 @@ const cardStyle = {
   padding: "16px",
 };
 
+const numFontStyle = {
+  fontFamily: "var(--lo-num-font)",
+  fontVariantNumeric: "tabular-nums",
+};
+
 function toNumber(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
@@ -88,6 +93,14 @@ function fmtSignedNum(n) {
   return `${prefix}${fmtNum(Math.abs(value))}`;
 }
 
+function getSignalValueColor(value, neutralThreshold = 0) {
+  const numeric = toNumber(value);
+  if (numeric == null) return C.label;
+  if (numeric > neutralThreshold) return "var(--lo-green, #34C759)";
+  if (numeric < -neutralThreshold) return "var(--lo-red, #FF3B30)";
+  return "var(--lo-yellow, #FF9500)";
+}
+
 function formatMonthDay(value) {
   if (!value) return "";
   const date = new Date(value);
@@ -112,6 +125,45 @@ function getPctColor(value) {
   if (numeric > 0) return C.green;
   if (numeric < 0) return C.red;
   return C.labelTer;
+}
+
+function getPaddedDomain(rows, keys, paddingRatio = 0.1) {
+  const values = [];
+  for (const row of rows || []) {
+    for (const key of keys) {
+      const value = Number(row?.[key]);
+      if (Number.isFinite(value)) values.push(value);
+    }
+  }
+  if (!values.length) return [0, 1];
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min;
+  const padding = range > 0 ? range * paddingRatio : Math.max(Math.abs(max) * paddingRatio, 1e8);
+  return [min - padding, max + padding];
+}
+
+function getPeakAnchor(points, windowDays) {
+  const windowed = clampToRecentDays(points || [], windowDays).filter((point) => Number.isFinite(Number(point?.value)));
+  if (windowed.length < 4) return null;
+  let peakPoint = windowed[0];
+  for (const point of windowed) {
+    if (Number(point.value) > Number(peakPoint.value)) peakPoint = point;
+  }
+  const currentPoint = windowed[windowed.length - 1];
+  if (!currentPoint || !Number.isFinite(Number(currentPoint.value)) || !Number.isFinite(Number(peakPoint.value)) || peakPoint.value === 0) return null;
+  return {
+    peakValue: Number(peakPoint.value),
+    deltaPct: ((Number(currentPoint.value) - Number(peakPoint.value)) / Number(peakPoint.value)) * 100,
+  };
+}
+
+function getFlowDirectionMeta(value) {
+  const numeric = toNumber(value);
+  if (numeric == null) return { arrow: "→", color: C.labelTer };
+  if (numeric > 0) return { arrow: "↑", color: "var(--lo-green, #34C759)" };
+  if (numeric < 0) return { arrow: "↓", color: "var(--lo-red, #FF3B30)" };
+  return { arrow: "→", color: "var(--lo-yellow, #FF9500)" };
 }
 
 function sortByTimestampAsc(points) {
@@ -472,8 +524,19 @@ export default function L2DetailPage({ onBack }) {
     }));
   }, [summaryState.data]);
 
+  const total7dChange = useMemo(() => {
+    const points = historyState.points || [];
+    const current = points.length ? points[points.length - 1] : null;
+    const weekAgo = points.length >= 8 ? points[points.length - 8] : null;
+    return current && weekAgo ? current.value - weekAgo.value : null;
+  }, [historyState.points]);
+
+  const historyDomain = useMemo(() => getPaddedDomain(historyChartData, ["total"]), [historyChartData]);
+  const chainDomain = useMemo(() => getPaddedDomain(chainChartData, ["solana", "bsc", "base"]), [chainChartData]);
+  const peakAnchor = useMemo(() => getPeakAnchor(historyState.points || [], 90), [historyState.points]);
+
   return (
-    <div className="lo-btc-detail-page" style={pageBodyStyle}>
+    <div className="lo-btc-detail-page" style={{ ...pageBodyStyle, borderTop: "2px solid rgba(0,212,170,0.3)" }}>
       <header className="lo-btc-detail-topbar">
         <div className="lo-btc-detail-topbar-inner">
           <button type="button" className="lo-btc-detail-back" onClick={onBack}>
@@ -495,17 +558,28 @@ export default function L2DetailPage({ onBack }) {
           onRetry={loadSummary}
         >
           <div style={{ display: "grid", gap: 18 }}>
-            <div style={{ fontSize: 42, fontWeight: 760, letterSpacing: -1.4, color: "#111827" }}>
+            <div style={{
+              ...numFontStyle,
+              fontSize: 42,
+              fontWeight: 760,
+              letterSpacing: -1.4,
+              color: getSignalValueColor(total7dChange, 1e8),
+            }}>
               {fmtNum(summaryState.data?.total)}
             </div>
+            {peakAnchor ? (
+              <div style={{ fontSize: "var(--lo-text-meta)", color: "var(--lo-text-muted, rgba(60,60,67,0.4))", lineHeight: 1.6 }}>
+                近 90 日峰值 {fmtNum(peakAnchor.peakValue)} · 当前较峰值 {peakAnchor.deltaPct > 0 ? "+" : ""}{peakAnchor.deltaPct.toFixed(1)}%
+              </div>
+            ) : null}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}>
               {summaryCards.map((item) => (
                 <div key={item.key} style={{ borderRadius: 14, padding: 14, background: "rgba(120,120,128,0.05)" }}>
                   <div style={{ fontSize: 12, color: C.labelTer, marginBottom: 8 }}>{item.label}</div>
-                  <div style={{ fontSize: 24, fontWeight: 760, letterSpacing: -0.8, color: "#111827", marginBottom: 6 }}>
+                  <div style={{ ...numFontStyle, fontSize: 24, fontWeight: 760, letterSpacing: -0.8, color: "#111827", marginBottom: 6 }}>
                     {fmtNum(item.value)}
                   </div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: C.labelSec }}>
+                  <div style={{ ...numFontStyle, fontSize: 12, fontWeight: 700, color: C.labelSec }}>
                     {item.pct == null ? "—" : `${item.pct.toFixed(1)}%`}
                   </div>
                 </div>
@@ -536,7 +610,8 @@ export default function L2DetailPage({ onBack }) {
                     minTickGap={24}
                   />
                   <YAxis
-                    tick={{ fill: "rgba(60,60,67,0.6)", fontSize: 11 }}
+                    domain={historyDomain}
+                    tick={{ ...numFontStyle, fill: "rgba(60,60,67,0.6)", fontSize: 11 }}
                     tickFormatter={fmtBillions}
                     tickLine={false}
                     axisLine={false}
@@ -561,17 +636,18 @@ export default function L2DetailPage({ onBack }) {
             {Object.keys(CHAIN_META).map((chain) => {
               const meta = CHAIN_META[chain];
               const item = chainState.chains?.[chain] || null;
+              const flowMeta = getFlowDirectionMeta(item?.changeValue);
               return (
                 <div key={chain} style={{ borderRadius: 14, padding: 14, background: "rgba(120,120,128,0.05)", minHeight: 148 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
                     <span style={{ fontSize: 18 }}>{meta.icon}</span>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{meta.label}</div>
                   </div>
-                  <div style={{ fontSize: 28, fontWeight: 760, letterSpacing: -1, color: "#111827", marginBottom: 10 }}>
+                  <div style={{ ...numFontStyle, fontSize: 28, fontWeight: 760, letterSpacing: -1, color: "#111827", marginBottom: 10 }}>
                     {fmtNum(item?.current)}
                   </div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: getPctColor(item?.changeValue), marginBottom: 6 }}>
-                    {item?.changeValue == null ? "—" : fmtSignedNum(item.changeValue)}
+                  <div style={{ ...numFontStyle, fontSize: 14, fontWeight: 700, color: getPctColor(item?.changeValue), marginBottom: 6 }}>
+                    {item?.changeValue == null ? "—" : `${flowMeta.arrow} ${fmtNum(Math.abs(item.changeValue))}`}
                   </div>
                   <div style={{ fontSize: 12, color: item?.changePct == null ? C.labelTer : meta.color, fontWeight: 700 }}>
                     {getChainDirection(item?.changePct, item?.current)}
@@ -604,7 +680,8 @@ export default function L2DetailPage({ onBack }) {
                     minTickGap={24}
                   />
                   <YAxis
-                    tick={{ fill: "rgba(60,60,67,0.6)", fontSize: 11 }}
+                    domain={chainDomain}
+                    tick={{ ...numFontStyle, fill: "rgba(60,60,67,0.6)", fontSize: 11 }}
                     tickFormatter={fmtBillions}
                     tickLine={false}
                     axisLine={false}

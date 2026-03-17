@@ -4,6 +4,7 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceDot,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -50,6 +51,11 @@ const cardStyle = {
   padding: "16px",
 };
 
+const numFontStyle = {
+  fontFamily: "var(--lo-num-font)",
+  fontVariantNumeric: "tabular-nums",
+};
+
 function toNumber(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
@@ -68,6 +74,14 @@ function fmtNum(n) {
 function fmtTrillions(n, digits = 3) {
   if (n == null || Number.isNaN(Number(n))) return "—";
   return `${Number(n).toFixed(digits)}T`;
+}
+
+function getGnlAccentColor(value) {
+  const numeric = toNumber(value);
+  if (numeric == null) return C.label;
+  if (numeric > 0.1) return "var(--lo-green, #34C759)";
+  if (numeric < -0.1) return "var(--lo-red, #FF3B30)";
+  return "var(--lo-yellow, #FFCC00)";
 }
 
 function formatDateLabel(value) {
@@ -102,6 +116,43 @@ function getXAxisInterval(period) {
   if (period === "2Y") return 40;
   if (period === "ALL") return 40;
   return 0;
+}
+
+function getPaddedDomain(rows, keys, paddingRatio = 0.1) {
+  const values = [];
+  for (const row of rows || []) {
+    for (const key of keys) {
+      const value = Number(row?.[key]);
+      if (Number.isFinite(value)) values.push(value);
+    }
+  }
+  if (!values.length) return [0, 1];
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min;
+  const padding = range > 0 ? range * paddingRatio : Math.max(Math.abs(max) * paddingRatio, 0.25);
+  return [min - padding, max + padding];
+}
+
+function getWindowRangeStats(points, key, windowDays) {
+  const windowed = clampToRecentDays(points || [], windowDays).filter((point) => Number.isFinite(Number(point?.[key])));
+  if (windowed.length < 4) return null;
+  const values = windowed.map((point) => Number(point[key]));
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  return { min, max, range: max - min };
+}
+
+function getSeriesExtrema(points, key) {
+  const valid = (points || []).filter((point) => Number.isFinite(Number(point?.[key])));
+  if (!valid.length) return { minPoint: null, maxPoint: null };
+  let minPoint = valid[0];
+  let maxPoint = valid[0];
+  for (const point of valid) {
+    if (Number(point[key]) < Number(minPoint[key])) minPoint = point;
+    if (Number(point[key]) > Number(maxPoint[key])) maxPoint = point;
+  }
+  return { minPoint, maxPoint };
 }
 
 function sortByTimestampAsc(points) {
@@ -475,9 +526,25 @@ export default function L1DetailPage({ onBack }) {
   }, [historyPeriod, summaryState.data]);
 
   const current = summaryState.data?.current || null;
+  const gnlDomain = useMemo(() => getPaddedDomain(gnlChartData, ["gnl"]), [gnlChartData]);
+  const componentDomain = useMemo(() => getPaddedDomain(gnlChartData, ["fed", "tga", "rrp"]), [gnlChartData]);
+  const gnlRangeAnchor = useMemo(() => {
+    const stats = getWindowRangeStats(summaryState.data?.history || [], "gnl", 365);
+    const currentGnl = toNumber(current?.gnl);
+    if (!stats || currentGnl == null) return null;
+    const percentile = stats.range > 0
+      ? Math.max(0, Math.min(100, ((currentGnl - stats.min) / stats.range) * 100))
+      : 50;
+    return {
+      min: stats.min,
+      max: stats.max,
+      percentile,
+    };
+  }, [current?.gnl, summaryState.data]);
+  const gnlExtrema = useMemo(() => getSeriesExtrema(gnlChartData, "gnl"), [gnlChartData]);
 
   return (
-    <div className="lo-btc-detail-page" style={pageBodyStyle}>
+    <div className="lo-btc-detail-page" style={{ ...pageBodyStyle, borderTop: "2px solid rgba(77,166,255,0.3)" }}>
       <header className="lo-btc-detail-topbar">
         <div className="lo-btc-detail-topbar-inner">
           <button type="button" className="lo-btc-detail-back" onClick={onBack}>
@@ -499,9 +566,20 @@ export default function L1DetailPage({ onBack }) {
           onRetry={loadFredData}
         >
           <div style={{ display: "grid", gap: 18 }}>
-            <div style={{ fontSize: 42, fontWeight: 760, letterSpacing: -1.4, color: "#111827" }}>
+            <div style={{
+              ...numFontStyle,
+              fontSize: 42,
+              fontWeight: 760,
+              letterSpacing: -1.4,
+              color: getGnlAccentColor(current?.gnl),
+            }}>
               {fmtTrillions(current?.gnl)}
             </div>
+            {gnlRangeAnchor ? (
+              <div style={{ fontSize: "var(--lo-text-meta)", color: "var(--lo-text-muted, rgba(60,60,67,0.4))", lineHeight: 1.6 }}>
+                近 52 周区间 [{fmtTrillions(gnlRangeAnchor.min)} — {fmtTrillions(gnlRangeAnchor.max)}] · 当前位于区间 {gnlRangeAnchor.percentile.toFixed(0)}%
+              </div>
+            ) : null}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}>
               {[
                 { key: "fed", label: "Fed 资产负债表", value: current?.fed?.valueT, date: current?.fed?.date, color: C.blue },
@@ -510,7 +588,14 @@ export default function L1DetailPage({ onBack }) {
               ].map((item) => (
                 <div key={item.key} style={{ borderRadius: 14, padding: 14, background: "rgba(120,120,128,0.05)" }}>
                   <div style={{ fontSize: 12, color: C.labelTer, marginBottom: 8 }}>{item.label}</div>
-                  <div style={{ fontSize: 24, fontWeight: 760, letterSpacing: -0.8, color: item.color, marginBottom: 6 }}>
+                  <div style={{
+                    ...numFontStyle,
+                    fontSize: 24,
+                    fontWeight: 760,
+                    letterSpacing: -0.8,
+                    color: item.color,
+                    marginBottom: 6,
+                  }}>
                     {fmtTrillions(item.value)}
                   </div>
                   <div style={{ fontSize: 12, fontWeight: 600, color: C.labelSec }}>
@@ -546,9 +631,10 @@ export default function L1DetailPage({ onBack }) {
                     tick={{ fontSize: 11, fill: C.labelTer }}
                   />
                   <YAxis
+                    domain={gnlDomain}
                     tickLine={false}
                     axisLine={false}
-                    tick={{ fontSize: 11, fill: C.labelTer }}
+                    tick={{ ...numFontStyle, fontSize: 11, fill: C.labelTer }}
                     tickFormatter={(value) => `${Number(value).toFixed(1)}T`}
                     width={48}
                   />
@@ -569,6 +655,38 @@ export default function L1DetailPage({ onBack }) {
                     dot={false}
                     activeDot={{ r: 4 }}
                   />
+                  {gnlExtrema.maxPoint ? (
+                    <ReferenceDot
+                      x={gnlExtrema.maxPoint.axisLabel}
+                      y={gnlExtrema.maxPoint.gnl}
+                      r={4}
+                      fill={C.blue}
+                      stroke="#fff"
+                      strokeWidth={1.5}
+                      label={{
+                        value: `${formatMonthDay(gnlExtrema.maxPoint.date)} · ${fmtTrillions(gnlExtrema.maxPoint.gnl)}`,
+                        position: "top",
+                        fill: C.labelTer,
+                        fontSize: 10,
+                      }}
+                    />
+                  ) : null}
+                  {gnlExtrema.minPoint && gnlExtrema.minPoint !== gnlExtrema.maxPoint ? (
+                    <ReferenceDot
+                      x={gnlExtrema.minPoint.axisLabel}
+                      y={gnlExtrema.minPoint.gnl}
+                      r={4}
+                      fill={C.orange}
+                      stroke="#fff"
+                      strokeWidth={1.5}
+                      label={{
+                        value: `${formatMonthDay(gnlExtrema.minPoint.date)} · ${fmtTrillions(gnlExtrema.minPoint.gnl)}`,
+                        position: "bottom",
+                        fill: C.labelTer,
+                        fontSize: 10,
+                      }}
+                    />
+                  ) : null}
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -608,9 +726,10 @@ export default function L1DetailPage({ onBack }) {
                       tick={{ fontSize: 11, fill: C.labelTer }}
                     />
                     <YAxis
+                      domain={componentDomain}
                       tickLine={false}
                       axisLine={false}
-                      tick={{ fontSize: 11, fill: C.labelTer }}
+                      tick={{ ...numFontStyle, fontSize: 11, fill: C.labelTer }}
                       tickFormatter={(value) => `${Number(value).toFixed(1)}T`}
                       width={48}
                     />
