@@ -52,6 +52,11 @@ const cardStyle = {
   padding: "16px",
 };
 
+const numFontStyle = {
+  fontFamily: "var(--lo-num-font)",
+  fontVariantNumeric: "tabular-nums",
+};
+
 const refreshButtonStyle = {
   border: "none",
   borderRadius: 8,
@@ -110,6 +115,14 @@ function getPctColor(value) {
   return C.labelTer;
 }
 
+function getSignalValueColor(value, neutralThreshold = 0) {
+  const numeric = toNumber(value);
+  if (numeric == null) return C.label;
+  if (numeric > neutralThreshold) return "var(--lo-green, #34C759)";
+  if (numeric < -neutralThreshold) return "var(--lo-red, #FF3B30)";
+  return "var(--lo-yellow, #FF9500)";
+}
+
 function getTurnoverColor(value) {
   const numeric = toNumber(value);
   if (numeric == null) return C.labelTer;
@@ -124,6 +137,22 @@ function getTurnoverLabel(value) {
   if (numeric >= 1) return "高周转";
   if (numeric >= 0.3) return "中周转";
   return "低周转";
+}
+
+function getRadarSignalLineColor(change24h, turnover) {
+  const change = toNumber(change24h);
+  const turn = toNumber(turnover);
+  if ((change != null && change < 0) || (turn != null && turn < 0.1)) return "var(--lo-red, #FF3B30)";
+  if ((change != null && change > 0) && (turn != null && turn >= 0.3)) return "var(--lo-green, #34C759)";
+  return "var(--lo-yellow, #FF9500)";
+}
+
+function getRadarSignalTone(change24h, turnover) {
+  const change = toNumber(change24h);
+  const turn = toNumber(turnover);
+  if ((change != null && change < 0) || (turn != null && turn < 0.1)) return "red";
+  if ((change != null && change > 0) && (turn != null && turn >= 0.3)) return "green";
+  return "yellow";
 }
 
 function getDexDirection(changePct) {
@@ -541,9 +570,15 @@ export default function L3DetailPage({ onBack, memeTopData }) {
     if (!items.length) return null;
     return items.reduce((sum, item) => sum + item.turnover, 0) / items.length;
   }, [radarState.rows]);
+  const radarSummary = useMemo(() => {
+    return radarState.rows.reduce((acc, row) => {
+      acc[getRadarSignalTone(row.change24h, row.turnover)] += 1;
+      return acc;
+    }, { green: 0, red: 0, yellow: 0 });
+  }, [radarState.rows]);
 
   return (
-    <div className="lo-btc-detail-page" style={pageBodyStyle}>
+    <div className="lo-btc-detail-page" style={{ ...pageBodyStyle, borderTop: "2px solid rgba(240,180,41,0.3)" }}>
       <header className="lo-btc-detail-topbar">
         <div className="lo-btc-detail-topbar-inner">
           <button type="button" className="lo-btc-detail-back" onClick={onBack}>
@@ -566,17 +601,23 @@ export default function L3DetailPage({ onBack, memeTopData }) {
         >
           <div style={{ display: "grid", gap: 16 }}>
             <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-              <div style={{ fontSize: 42, fontWeight: 760, letterSpacing: -1.4, color: "#111827" }}>
+              <div style={{
+                ...numFontStyle,
+                fontSize: 42,
+                fontWeight: 760,
+                letterSpacing: -1.4,
+                color: getSignalValueColor(memeSummaryState.data?.change24h, 0.1),
+              }}>
                 {fmtNum(memeSummaryState.data?.marketCap)}
               </div>
               <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
                 <div style={{ minWidth: 140, padding: "12px 14px", borderRadius: 12, background: "rgba(52,199,89,0.08)" }}>
                   <div style={{ fontSize: 11, color: C.labelTer, marginBottom: 6 }}>24h 变化</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: getPctColor(memeSummaryState.data?.change24h) }}>{fmtPct(memeSummaryState.data?.change24h, 2)}</div>
+                  <div style={{ ...numFontStyle, fontSize: 20, fontWeight: 700, color: getPctColor(memeSummaryState.data?.change24h) }}>{fmtPct(memeSummaryState.data?.change24h, 2)}</div>
                 </div>
                 <div style={{ minWidth: 140, padding: "12px 14px", borderRadius: 12, background: "rgba(15,23,42,0.04)" }}>
                   <div style={{ fontSize: 11, color: C.labelTer, marginBottom: 6 }}>7 日变化</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: getPctColor(memeSummaryState.data?.change7d) }}>{fmtPct(memeSummaryState.data?.change7d, 2)}</div>
+                  <div style={{ ...numFontStyle, fontSize: 20, fontWeight: 700, color: getPctColor(memeSummaryState.data?.change7d) }}>{fmtPct(memeSummaryState.data?.change7d, 2)}</div>
                 </div>
               </div>
             </div>
@@ -610,8 +651,8 @@ export default function L3DetailPage({ onBack, memeTopData }) {
                       <span style={{ fontSize: 18 }}>{chainInfo.icon}</span>
                       <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{chainInfo.label}</div>
                     </div>
-                    <div style={{ fontSize: 28, fontWeight: 760, letterSpacing: -1, color: "#111827", marginBottom: 12 }}>{fmtNum(item?.current)}</div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: getPctColor(item?.changePct), marginBottom: 6 }}>{fmtPct(item?.changePct, 2)}</div>
+                    <div style={{ ...numFontStyle, fontSize: 28, fontWeight: 760, letterSpacing: -1, color: "#111827", marginBottom: 12 }}>{fmtNum(item?.current)}</div>
+                    <div style={{ ...numFontStyle, fontSize: 13, fontWeight: 700, color: getPctColor(item?.changePct), marginBottom: 6 }}>{fmtPct(item?.changePct, 2)}</div>
                     <div style={{ fontSize: 12, color: item?.changePct == null ? C.labelTer : chainInfo.color, fontWeight: 700 }}>{getDexDirection(item?.changePct)}</div>
                   </div>
                 );
@@ -673,7 +714,7 @@ export default function L3DetailPage({ onBack, memeTopData }) {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 12, background: "rgba(15,23,42,0.04)", flexWrap: "wrap" }}>
               <div>
                 <div style={{ fontSize: 11, color: C.labelTer, marginBottom: 6 }}>Top 10 平均换手率</div>
-                <div style={{ fontSize: 28, fontWeight: 760, letterSpacing: -0.8, color: getTurnoverColor(top10Turnover) }}>{fmtTurnover(top10Turnover)}</div>
+                <div style={{ ...numFontStyle, fontSize: 28, fontWeight: 760, letterSpacing: -0.8, color: getTurnoverColor(top10Turnover) }}>{fmtTurnover(top10Turnover)}</div>
               </div>
               <div style={{ display: "inline-flex", width: "fit-content", borderRadius: 999, padding: "7px 12px", background: "rgba(120,120,128,0.08)", fontSize: 12, fontWeight: 700, color: getTurnoverColor(top10Turnover) }}>
                 {getTurnoverLabel(top10Turnover)}
@@ -681,19 +722,25 @@ export default function L3DetailPage({ onBack, memeTopData }) {
             </div>
 
             <div style={{ overflowX: "auto", borderRadius: 12, border: "1px solid rgba(60,60,67,0.08)" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", padding: "12px 14px", borderBottom: "1px solid rgba(60,60,67,0.08)", background: "rgba(120,120,128,0.03)" }}>
+                <div style={{ fontSize: "var(--lo-text-meta)", color: "var(--lo-text-muted, rgba(60,60,67,0.4))" }}>绿线 {radarSummary.green} 个</div>
+                <div style={{ fontSize: "var(--lo-text-meta)", color: "var(--lo-text-muted, rgba(60,60,67,0.4))" }}>红线 {radarSummary.red} 个</div>
+                <div style={{ fontSize: "var(--lo-text-meta)", color: "var(--lo-text-muted, rgba(60,60,67,0.4))" }}>黄线 {radarSummary.yellow} 个</div>
+              </div>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
                 <thead>
                   <tr style={{ background: "rgba(120,120,128,0.05)" }}>
-                    {["#", "代币", "市值", "24h Vol", "24h涨跌", "换手率"].map((label) => (
+                    {["代币名", "市值", "24H 涨跌", "换手率"].map((label) => (
                       <th
                         key={label}
                         style={{
-                          textAlign: label === "代币" ? "left" : "right",
+                          textAlign: label === "代币名" ? "left" : "right",
                           padding: "11px 12px",
-                          fontSize: 11,
-                          color: C.labelTer,
-                          fontWeight: 700,
-                          letterSpacing: "0.02em",
+                          fontSize: "var(--lo-text-meta)",
+                          color: "var(--lo-text-muted, rgba(60,60,67,0.4))",
+                          fontWeight: 600,
+                          letterSpacing: "0.08em",
+                          textTransform: "uppercase",
                         }}
                       >
                         {label}
@@ -714,10 +761,7 @@ export default function L3DetailPage({ onBack, memeTopData }) {
                           transition: "background 0.15s ease",
                         }}
                       >
-                        <td style={{ padding: "12px", fontSize: 13, fontWeight: 700, color: "#111827", textAlign: "right", borderTop: "1px solid rgba(60,60,67,0.08)" }}>
-                          {row.rank}
-                        </td>
-                        <td style={{ padding: "12px", borderTop: "1px solid rgba(60,60,67,0.08)" }}>
+                        <td style={{ padding: "12px", borderTop: "1px solid rgba(60,60,67,0.08)", borderLeft: `3px solid ${getRadarSignalLineColor(row.change24h, row.turnover)}` }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                             {row.image ? (
                               <img src={row.image} alt={row.symbol} style={{ width: 20, height: 20, borderRadius: 10, objectFit: "cover", background: "rgba(120,120,128,0.08)" }} />
@@ -725,21 +769,18 @@ export default function L3DetailPage({ onBack, memeTopData }) {
                               <div style={{ width: 20, height: 20, borderRadius: 10, background: "rgba(120,120,128,0.12)" }} />
                             )}
                             <div style={{ minWidth: 0 }}>
-                              <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{row.symbol}</div>
+                              <div style={{ ...numFontStyle, fontSize: 13, fontWeight: 700, color: "#111827" }}>{row.symbol}</div>
                               <div style={{ fontSize: 11, color: C.labelTer, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>{row.name}</div>
                             </div>
                           </div>
                         </td>
-                        <td style={{ padding: "12px", fontSize: 12, color: "#111827", textAlign: "right", borderTop: "1px solid rgba(60,60,67,0.08)" }}>
+                        <td style={{ ...numFontStyle, padding: "12px", fontSize: 12, color: "#111827", textAlign: "right", borderTop: "1px solid rgba(60,60,67,0.08)" }}>
                           {fmtNum(row.marketCap)}
                         </td>
-                        <td style={{ padding: "12px", fontSize: 12, color: "#111827", textAlign: "right", borderTop: "1px solid rgba(60,60,67,0.08)" }}>
-                          {fmtNum(row.totalVolume)}
-                        </td>
-                        <td style={{ padding: "12px", fontSize: 12, fontWeight: 700, color: getPctColor(row.change24h), textAlign: "right", borderTop: "1px solid rgba(60,60,67,0.08)" }}>
+                        <td style={{ ...numFontStyle, padding: "12px", fontSize: 12, fontWeight: 700, color: getPctColor(row.change24h), textAlign: "right", borderTop: "1px solid rgba(60,60,67,0.08)" }}>
                           {fmtPct(row.change24h, 2)}
                         </td>
-                        <td style={{ padding: "12px", fontSize: 12, fontWeight: 700, color: getTurnoverColor(row.turnover), textAlign: "right", borderTop: "1px solid rgba(60,60,67,0.08)" }}>
+                        <td style={{ ...numFontStyle, padding: "12px", fontSize: 12, fontWeight: 700, color: getTurnoverColor(row.turnover), textAlign: "right", borderTop: "1px solid rgba(60,60,67,0.08)" }}>
                           {fmtTurnover(row.turnover)}
                         </td>
                       </tr>

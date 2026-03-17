@@ -16,16 +16,16 @@ const OKX_HEADERS = {
 const CACHE_TTL = {
   fg: 3600,
   binance: 300,
-  cg: 600,
+  cg: 1800,
   cgChart: 3600,
   llama: 1800,
   fred: 86400,
-  all: 600,
+  all: 3600,
 };
 
 const INTERNAL_CACHE_ORIGIN = "https://liquidityos-data.internal";
 const WORKER_PUBLIC_URL = "https://liquidityos-data.fanfan09132022.workers.dev";
-const CACHE_NAMESPACE = "v20260315-fix09";
+const CACHE_NAMESPACE = "v20260315-fix12";
 
 function jsonResponse(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
@@ -278,10 +278,18 @@ function isLikelyMemeTicker(item) {
 }
 
 async function getCoinLoreMemeRows() {
-  const payload = await fetchJsonSafe("https://api.coinlore.net/api/tickers/?start=0&limit=100", { timeoutMs: 5000 });
-  const rows = Array.isArray(payload?.data) ? payload.data : [];
-  return rows
-    .filter(isLikelyMemeTicker)
+  const pages = [0, 100, 200, 300];
+  const allRows = [];
+  for (const start of pages) {
+    const payload = await fetchJsonOrThrow(
+      `https://api.coinlore.net/api/tickers/?start=${start}&limit=100`,
+      { timeoutMs: 5000 }
+    );
+    const rows = Array.isArray(payload?.data) ? payload.data : [];
+    allRows.push(...rows);
+    if (start < 300) await sleep(400);
+  }
+  return allRows
     .sort((a, b) => (toNumber(b?.market_cap_usd) || 0) - (toNumber(a?.market_cap_usd) || 0))
     .slice(0, 50)
     .map((item, index) => ({
@@ -295,6 +303,40 @@ async function getCoinLoreMemeRows() {
       change_24h_pct: toNumber(item?.percent_change_24h),
       change_7d_pct: toNumber(item?.percent_change_7d),
       volume_24h: toNumber(item?.volume24),
+    }));
+}
+
+async function getCoinPaprikaMemeRows() {
+  const MEME_KEYWORDS = [
+    "doge", "shib", "inu", "pepe", "bonk", "floki", "wif", "mog", "turbo", "brett",
+    "popcat", "pengu", "cheems", "babydoge", "neiro", "ponke", "cat", "goat",
+    "fartcoin", "wojak", "meme", "pnut", "giga", "kek", "snek", "trump", "melania",
+  ];
+
+  const payload = await fetchJsonOrThrow(
+    "https://api.coinpaprika.com/v1/tickers?limit=500",
+    { timeoutMs: 8000 }
+  );
+  const rows = Array.isArray(payload) ? payload : [];
+
+  return rows
+    .filter(item => {
+      const hay = `${item?.symbol || ""} ${item?.name || ""} ${item?.id || ""}`.toLowerCase();
+      return MEME_KEYWORDS.some(k => hay.includes(k));
+    })
+    .sort((a, b) => (toNumber(b?.quotes?.USD?.market_cap) || 0) - (toNumber(a?.quotes?.USD?.market_cap) || 0))
+    .slice(0, 50)
+    .map((item, index) => ({
+      rank: index + 1,
+      token: String(item?.symbol || "").toUpperCase(),
+      name: item?.name || "",
+      image: null,
+      logo: null,
+      price: toNumber(item?.quotes?.USD?.price),
+      market_cap: toNumber(item?.quotes?.USD?.market_cap),
+      change_24h_pct: toNumber(item?.quotes?.USD?.percent_change_24h),
+      change_7d_pct: toNumber(item?.quotes?.USD?.percent_change_7d),
+      volume_24h: toNumber(item?.quotes?.USD?.volume_24h),
     }));
 }
 
@@ -340,6 +382,49 @@ async function getCgMarkets(category = "meme-token", perPage = "50", page = "1")
       )
     )
   );
+}
+
+async function getMemeCategorySummary() {
+  return getCachedJson(
+    "/internal/cg/meme-category",
+    CACHE_TTL.cg,
+    async () => {
+      const data = await fetchJsonWithRetry(
+        "https://api.coingecko.com/api/v3/coins/categories",
+        { timeoutMs: 8000 },
+        2,
+        1500
+      );
+      const cat = Array.isArray(data)
+        ? data.find(c => c.id === "meme-token") || data[0]
+        : data;
+      return {
+        mcap: toNumber(cat?.market_cap),
+        mcap_change_24h: toNumber(cat?.market_cap_change_24h),
+      };
+    }
+  );
+}
+
+async function getMemeSummaryPayload() {
+  return getCachedJson("/api/meme-summary", 900, async () => {
+    const data = await fetchJsonWithRetry(
+      "https://api.coingecko.com/api/v3/coins/categories",
+      { timeoutMs: 8000 },
+      2,
+      1500
+    );
+    const cat = Array.isArray(data)
+      ? data.find(c => c.id === "meme-token") || null
+      : null;
+    if (!cat) throw new Error("meme-token category not found");
+    return {
+      mcap: toNumber(cat.market_cap),
+      mcap_change_24h: toNumber(cat.market_cap_change_24h),
+      source: "CoinGecko-categories",
+      updated_at: new Date().toISOString(),
+    };
+  });
 }
 
 async function getCgChart(coinId, days = "30", interval = "") {
@@ -606,11 +691,16 @@ async function buildMacroSnapshot(env) {
   };
 
   const walcl = await readTask("fred_walcl", () => fetchFredObservationsLive("WALCL", env), []);
+  await sleep(500);
   const tga = await readTask("fred_tga", () => fetchFredObservationsLive("WTREGEN", env), []);
+  await sleep(500);
   const rrp = await readTask("fred_rrp", () => fetchFredObservationsLive("RRPONTSYD", env), []);
+  await sleep(500);
   const tvl = await readTask("llama_chains", () => fetchChainTvlsLive(), { solana: null, ethereum: null, bsc: null });
+  await sleep(500);
   const fgPayload = await readTask("fg", () => fetchFearGreedLive("1"), null);
-  const btcSnapshot = await readTask("btc_snapshot", () => fetchBtcSnapshotLive(now), {
+  await sleep(500);
+  const btcSnapshot = await readTask("btc_snapshot", () => getBtcSnapshot(now), {
     price: null,
     change_24h: null,
     source: null,
@@ -619,21 +709,27 @@ async function buildMacroSnapshot(env) {
     vs_ma_200_pct: null,
     updated_at: now,
   });
-  const stableHistoryPayload = await readTask("llama_stable_chart", () => fetchLlamaStableChartLive(), []);
+  const stableHistoryPayload = await readTask("llama_stable_chart", () => getLlamaStableChart(), []);
   await sleep(650);
-  const stableSolanaPayload = await readTask("llama_stable_solana", () => fetchLlamaStableChartLive("Solana"), []);
+  const stableSolanaPayload = await readTask("llama_stable_solana", () => getLlamaStableChart("Solana"), []);
   await sleep(650);
-  const stableBscPayload = await readTask("llama_stable_bsc", () => fetchLlamaStableChartLive("bsc"), []);
+  const stableBscPayload = await readTask("llama_stable_bsc", () => getLlamaStableChart("bsc"), []);
   await sleep(650);
-  const dexSolanaPayload = await readTask("llama_dex_solana", () => fetchLlamaDexLive("solana"), null);
+  const dexSolanaPayload = await readTask("llama_dex_solana", () => getLlamaDex("solana"), null);
   await sleep(650);
-  const dexBasePayload = await readTask("llama_dex_base", () => fetchLlamaDexLive("base"), null);
+  const dexBasePayload = await readTask("llama_dex_base", () => getLlamaDex("base"), null);
   await sleep(650);
-  const dexBscPayload = await readTask("llama_dex_bsc", () => fetchLlamaDexLive("bsc"), null);
-  let memeMarkets = await readTask("cg_markets", () => fetchCgMarketsLive("meme-token", "50", "1"), []);
-  if (!Array.isArray(memeMarkets) || !memeMarkets.length) {
-    memeMarkets = await readTask("coinlore_meme", () => getCoinLoreMemeRows(), []);
-  }
+  const dexBscPayload = await readTask("llama_dex_bsc", () => getLlamaDex("bsc"), null);
+  const memeSummaryDirect = await readTask(
+    "meme_summary",
+    () => fetchWorkerJson("/api/meme-summary"),
+    null
+  );
+  await sleep(800);
+  let memeMarkets = await readTask("cg_markets", () => getCgMarkets("meme-token", "50", "1"), []);
+  const memeSummary = memeSummaryDirect
+    ? { mcap: memeSummaryDirect.mcap, mcap_change_24h: memeSummaryDirect.mcap_change_24h }
+    : buildMemeSummary(Array.isArray(memeMarkets) ? buildMemeRows(memeMarkets) : []);
 
   const fgEntry = Array.isArray(fgPayload?.data) ? fgPayload.data[0] : null;
 
@@ -651,7 +747,6 @@ async function buildMacroSnapshot(env) {
   const stableBsc = buildStableChainSummary(stableBscPayload);
 
   const memeTopRows = Array.isArray(memeMarkets) ? buildMemeRows(memeMarkets) : [];
-  const memeSummary = buildMemeSummary(memeTopRows);
   const fred = buildFredPayload(walcl, tga, rrp, now);
 
   return {
@@ -730,6 +825,11 @@ export default {
         const interval = searchParams.get("interval") || "";
         const payload = await getCgChart(coinId, days, interval);
         return jsonResponse(payload, 200, { "Cache-Control": `public, max-age=${CACHE_TTL.cgChart}` });
+      }
+
+      if (pathname === "/api/meme-summary") {
+        const payload = await getMemeSummaryPayload();
+        return jsonResponse(payload, 200, { "Cache-Control": "public, max-age=900" });
       }
 
       if (pathname.startsWith("/api/llama/dex/")) {
