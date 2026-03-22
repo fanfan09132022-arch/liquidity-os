@@ -20,6 +20,7 @@ const CACHE_TTL = {
   cgChart: 3600,
   llama: 1800,
   fred: 86400,
+  memeRadar: 300,
   all: 3600,
 };
 
@@ -427,6 +428,274 @@ async function getMemeSummaryPayload() {
   });
 }
 
+// ── Alpha Support 辅助 ──
+function normalizeAlphaChain(chain) {
+  const v = String(chain || "").toLowerCase();
+  if (v === "solana") return { key: "solana", birdeye: "solana", gecko: "solana" };
+  if (v === "bsc") return { key: "bsc", birdeye: "bsc", gecko: "bsc" };
+  return null;
+}
+
+function firstAlphaNumber(...values) {
+  for (const value of values) {
+    const num = toNumber(value);
+    if (num != null) return num;
+  }
+  return null;
+}
+
+function calcTop10Share(topHolders = []) {
+  const firstTen = topHolders.slice(0, 10);
+  if (firstTen.length === 0) return null;
+  const pctSum = firstTen.reduce((sum, holder) => {
+    const pct = toNumber(holder?.percentage ?? holder?.share ?? holder?.ownership_percentage);
+    return sum + (pct ?? 0);
+  }, 0);
+  return pctSum > 0 ? parseFloat(pctSum.toFixed(2)) : null;
+}
+
+function pickPrimaryPool(pools = []) {
+  if (!Array.isArray(pools) || pools.length === 0) return null;
+  return pools
+    .map((pool) => {
+      const attrs = pool?.attributes || {};
+      const liquidity = toNumber(attrs.reserve_in_usd);
+      const volume24h = toNumber(attrs.volume_usd?.h24);
+      return { pool, liquidity: liquidity ?? 0, volume24h: volume24h ?? 0 };
+    })
+    .sort((a, b) => (b.liquidity + b.volume24h) - (a.liquidity + a.volume24h))[0]?.pool || null;
+}
+
+async function fetchBirdeyeJson(path, params, apiKey, chain) {
+  const qs = params ? `?${new URLSearchParams(params).toString()}` : "";
+  return fetchJsonOrThrow(`https://public-api.birdeye.so${path}${qs}`, {
+    headers: { "X-API-KEY": apiKey, "x-chain": chain },
+    timeoutMs: 6000,
+  });
+}
+
+async function fetchGeckoTerminalJson(path) {
+  return fetchJsonSafe(`https://api.geckoterminal.com/api/v2${path}`, {
+    timeoutMs: 6000,
+  });
+}
+
+async function getAlphaSupportPayload(env, chain, address) {
+  const normalizedChain = normalizeAlphaChain(chain);
+  if (!normalizedChain) {
+    return { error: "unsupported_chain", chain, address, chips: null, momentum: null, pool: null };
+  }
+  if (!address) {
+    return { error: "missing_address", chain: normalizedChain.key, address: "", chips: null, momentum: null, pool: null };
+  }
+
+  const birdeyeKey = env?.BIRDEYE_API_KEY;
+  const geckoKey = env?.GECKOTERMINAL_API_KEY || env?.GeckoTerminal_API_KEY;
+  const updatedAt = new Date().toISOString();
+
+  const chips = { source: "birdeye", updated_at: updatedAt, holder_count: null, top10_share_pct: null, top_holders_count: null, error: null };
+  const momentum = { source: "birdeye", updated_at: updatedAt, price: null, price_change_24h_pct: null, volume_24h: null, volume_change_24h_pct: null, error: null };
+  const pool = { source: "geckoterminal", updated_at: updatedAt, pool_address: null, dex_name: null, liquidity_usd: null, volume_24h_usd: null, liq_vol_ratio: null, error: null };
+
+  if (!birdeyeKey) {
+    chips.error = "BIRDEYE_API_KEY not set";
+    momentum.error = "BIRDEYE_API_KEY not set";
+  } else {
+    if (normalizedChain.key !== "solana") {
+      chips.error = "not_supported";
+    } else {
+      try {
+        const holdersRes = await fetchBirdeyeJson(
+          "/defi/v3/token/holder",
+          { address, offset: 0, limit: 10 },
+          birdeyeKey,
+          normalizedChain.birdeye
+        );
+        const holdersData = Array.isArray(holdersRes?.data?.items) ? holdersRes.data.items
+          : Array.isArray(holdersRes?.data) ? holdersRes.data
+          : Array.isArray(holdersRes?.items) ? holdersRes.items
+          : [];
+        chips.holder_count = firstAlphaNumber(holdersRes?.data?.holder_count, holdersRes?.data?.holders, holdersRes?.holder_count, holdersRes?.data?.total_holders);
+        chips.top_holders_count = holdersData.length;
+        chips.top10_share_pct = calcTop10Share(holdersData);
+      } catch (e) {
+        chips.error = e.message;
+      }
+    }
+
+    try {
+      const [priceRes, pvRes] = await Promise.all([
+        fetchBirdeyeJson("/defi/price", { address }, birdeyeKey, normalizedChain.birdeye),
+        fetchJsonSafe(`https://public-api.birdeye.so/defi/price_volume/single?address=${encodeURIComponent(address)}`, {
+          headers: { "X-API-KEY": birdeyeKey, "x-chain": normalizedChain.birdeye },
+          timeoutMs: 6000,
+        }),
+      ]);
+      const priceItem = priceRes?.data || priceRes || {};
+      const pvItem = pvRes?.data || pvRes || {};
+      momentum.price = firstAlphaNumber(priceItem?.value, priceItem?.price, priceItem?.data?.value, pvItem?.price, pvItem?.current_price);
+      momentum.price_change_24h_pct = firstAlphaNumber(pvItem?.priceChange24h, pvItem?.price_change_24h, pvItem?.price_change_24h_percent, pvItem?.priceChangePercent24h);
+      momentum.volume_24h = firstAlphaNumber(pvItem?.volume24h, pvItem?.volume_24h, pvItem?.volume, pvItem?.volume24hUSD);
+      momentum.volume_change_24h_pct = firstAlphaNumber(pvItem?.volumeChange24h, pvItem?.volume_change_24h, pvItem?.volume_change_percent_24h, pvItem?.volume24hChangePercent);
+    } catch (e) {
+      momentum.error = e.message;
+    }
+  }
+
+  try {
+      const [poolsRes, tokenRes] = await Promise.all([
+        fetchGeckoTerminalJson(`/networks/${normalizedChain.gecko}/tokens/${address}/pools`),
+        fetchGeckoTerminalJson(`/networks/${normalizedChain.gecko}/tokens/${address}`),
+      ]);
+      let poolList = Array.isArray(poolsRes?.data) ? poolsRes.data : [];
+      let primaryPool = pickPrimaryPool(poolList);
+      if (!primaryPool) {
+        const searchRes = await fetchJsonSafe(
+          `https://api.geckoterminal.com/api/v2/search/pools?query=${encodeURIComponent(address)}&network=${normalizedChain.gecko}`,
+          { timeoutMs: 6000 }
+        );
+        poolList = Array.isArray(searchRes?.data) ? searchRes.data : [];
+        primaryPool = pickPrimaryPool(poolList);
+      }
+      const attrs = primaryPool?.attributes || {};
+      let liquidityUsd = firstAlphaNumber(attrs.reserve_in_usd, attrs.total_reserve_in_usd);
+      let volume24hUsd = firstAlphaNumber(attrs.volume_usd?.h24, attrs.h24_volume_usd);
+      if ((liquidityUsd == null || volume24hUsd == null) && tokenRes?.data?.attributes) {
+        const ta = tokenRes.data.attributes;
+        liquidityUsd = liquidityUsd ?? firstAlphaNumber(ta.total_reserve_in_usd, ta.reserve_in_usd);
+        volume24hUsd = volume24hUsd ?? firstAlphaNumber(ta.volume_usd?.h24, ta.h24_volume_usd);
+      }
+      pool.pool_address = attrs.address || null;
+      pool.dex_name = primaryPool?.relationships?.dex?.data?.id || null;
+      pool.liquidity_usd = liquidityUsd;
+      pool.volume_24h_usd = volume24hUsd;
+      pool.liq_vol_ratio = (liquidityUsd != null && volume24hUsd && volume24hUsd > 0)
+        ? parseFloat((liquidityUsd / volume24hUsd).toFixed(2)) : null;
+      if (!primaryPool && liquidityUsd == null && volume24hUsd == null) {
+        pool.error = "unavailable";
+      }
+  } catch (e) {
+    pool.error = e.message;
+  }
+
+  return { chain: normalizedChain.key, address, updated_at: updatedAt, chips, momentum, pool };
+}
+
+async function getMemeRadarPayload() {
+  return getCachedJson("/api/meme-radar", CACHE_TTL.memeRadar, async () => {
+    const updatedAt = new Date().toISOString();
+    let profiles = null;
+
+    try {
+      profiles = await fetchJsonOrThrow(
+        "https://api.dexscreener.com/token-profiles/latest/v1",
+        { timeoutMs: 8000 }
+      );
+    } catch {
+      return {
+        items: [],
+        count: 0,
+        source: "dexscreener-token-profiles",
+        updatedAt,
+        error: "dexscreener_profiles_failed",
+      };
+    }
+
+    const profileItems = [];
+    const seenAddresses = new Set();
+    for (const item of Array.isArray(profiles) ? profiles : []) {
+      const tokenAddress = String(item?.tokenAddress || "").trim();
+      if (!tokenAddress || seenAddresses.has(tokenAddress)) continue;
+      seenAddresses.add(tokenAddress);
+      profileItems.push({
+        tokenAddress,
+        chainId: item?.chainId || null,
+        url: item?.url || null,
+        icon: item?.icon || null,
+        description: item?.description || null,
+      });
+      if (profileItems.length >= 30) break;
+    }
+
+    if (!profileItems.length) {
+      return {
+        items: [],
+        count: 0,
+        source: "dexscreener-token-profiles",
+        updatedAt,
+        error: null,
+      };
+    }
+
+    let pairsPayload = null;
+    try {
+      pairsPayload = await fetchJsonOrThrow(
+        `https://api.dexscreener.com/latest/dex/tokens/${profileItems.map((item) => item.tokenAddress).join(",")}`,
+        { timeoutMs: 9000 }
+      );
+    } catch {
+      return {
+        items: [],
+        count: 0,
+        source: "dexscreener-token-profiles",
+        updatedAt,
+        error: "dexscreener_tokens_failed",
+      };
+    }
+
+    const pairMap = new Map();
+    for (const pair of Array.isArray(pairsPayload?.pairs) ? pairsPayload.pairs : []) {
+      const address = String(pair?.baseToken?.address || "").trim().toLowerCase();
+      if (!address || pairMap.has(address)) continue;
+      pairMap.set(address, pair);
+    }
+
+    const items = [];
+    for (const profile of profileItems) {
+      try {
+        const pair = pairMap.get(profile.tokenAddress.toLowerCase());
+        if (!pair) continue;
+        const marketCapOrFdv = toNumber(pair?.marketCap) ?? toNumber(pair?.fdv);
+        if (marketCapOrFdv == null) continue;
+        items.push({
+          tokenAddress: profile.tokenAddress,
+          chainId: profile.chainId,
+          symbol: pair?.baseToken?.symbol || null,
+          name: pair?.baseToken?.name || null,
+          url: profile.url,
+          icon: profile.icon,
+          description: profile.description,
+          dexId: pair?.dexId || null,
+          pairCreatedAt: toNumber(pair?.pairCreatedAt),
+          priceUsd: pair?.priceUsd ?? null,
+          priceChangeH1: toNumber(pair?.priceChange?.h1),
+          priceChangeH24: toNumber(pair?.priceChange?.h24),
+          volumeH24: toNumber(pair?.volume?.h24),
+          volumeH1: toNumber(pair?.volume?.h1),
+          liquidityUsd: toNumber(pair?.liquidity?.usd),
+          marketCapOrFdv,
+        });
+      } catch {
+        // skip malformed token rows without failing the whole payload
+      }
+      if (items.length >= 20) break;
+    }
+
+    const filteredItems = items.filter((item) => !(
+      (item.volumeH1 == null || item.volumeH1 === 0)
+      && (item.liquidityUsd == null || item.liquidityUsd === 0)
+    ));
+
+    return {
+      items: filteredItems,
+      count: filteredItems.length,
+      source: "dexscreener-token-profiles",
+      updatedAt,
+      error: null,
+    };
+  });
+}
+
 async function getCgChart(coinId, days = "30", interval = "") {
   const intervalParam = interval ? `&interval=${interval}` : "";
   return getCachedJson(
@@ -830,6 +1099,18 @@ export default {
       if (pathname === "/api/meme-summary") {
         const payload = await getMemeSummaryPayload();
         return jsonResponse(payload, 200, { "Cache-Control": "public, max-age=900" });
+      }
+
+      if (pathname === "/api/meme-radar") {
+        const payload = await getMemeRadarPayload();
+        return jsonResponse(payload, 200, { "Cache-Control": `public, max-age=${CACHE_TTL.memeRadar}` });
+      }
+
+      if (pathname === "/api/alpha-support") {
+        const chain = searchParams.get("chain") || "solana";
+        const address = searchParams.get("address") || "";
+        const payload = await getAlphaSupportPayload(env, chain, address);
+        return jsonResponse(payload, 200);
       }
 
       if (pathname.startsWith("/api/llama/dex/")) {

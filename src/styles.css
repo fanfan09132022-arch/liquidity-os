@@ -103,11 +103,13 @@ body {
   background: var(--lo-bg-deep);
   color: var(--lo-text-primary);
   font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  transition: background-color 0.3s ease, color 0.2s ease;
 }
 
 .lo-app {
   position: relative;
   isolation: isolate;
+  background-color: var(--lo-bg-deep);
   background:
     radial-gradient(circle at top right, var(--lo-bg-glow-brand), transparent 40%),
     radial-gradient(circle at bottom left, var(--lo-bg-glow-secondary), transparent 34%),
@@ -120,6 +122,7 @@ body {
   min-height: 100vh;
   font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.3s ease, color 0.2s ease;
 }
 
 .lo-app::after {
@@ -168,6 +171,7 @@ a {
   backdrop-filter: saturate(180%) blur(20px);
   background: var(--lo-surface-topbar);
   border-bottom: 1px solid var(--lo-border);
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.2s ease;
 }
 
 .lo-topbar-inner {
@@ -580,6 +584,7 @@ a {
   background: rgba(255, 255, 255, 0.9);
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .lo-command-signal-item {
@@ -598,6 +603,10 @@ a {
   font-size: var(--lo-text-meta);
   color: rgba(15, 23, 42, 0.52);
   font-weight: var(--lo-weight-label);
+}
+
+.lo-nav-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
 .lo-command-side-panel,
@@ -926,6 +935,7 @@ a {
   border: 1px solid rgba(255, 255, 255, 0.72);
   box-shadow: var(--lo-shadow-card);
   border-radius: 24px;
+  transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, transform 0.2s ease, color 0.2s ease;
 }
 
 .lo-panel-soft {
@@ -933,6 +943,7 @@ a {
   border: 1px solid rgba(15, 23, 42, 0.06);
   box-shadow: var(--lo-shadow-card);
   border-radius: 20px;
+  transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, transform 0.2s ease, color 0.2s ease;
 }
 
 .lo-section-head {
@@ -981,6 +992,7 @@ a {
   font-size: var(--lo-text-meta);
   font-weight: var(--lo-weight-label);
   color: rgba(15, 23, 42, 0.72);
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.2s ease;
 }
 
 .lo-btn {
@@ -1858,6 +1870,7 @@ a {
   border-radius: 26px;
   border: 1px solid rgba(15, 23, 42, 0.06);
   background: linear-gradient(180deg, rgba(246, 248, 251, 0.92), rgba(240, 243, 248, 0.88));
+  transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, color 0.2s ease;
 }
 
 .lo-record-stage-head {
@@ -2266,6 +2279,7 @@ a {
   box-shadow: 0 20px 44px rgba(15, 23, 42, 0.18);
   overflow: hidden;
   will-change: transform;
+  transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, color 0.2s ease;
 }
 
 .lo-floating-note.is-collapsed {
@@ -2365,6 +2379,22 @@ a {
   line-height: 1.65;
   resize: none;
   background: transparent;
+}
+
+.lo-global-dock {
+  transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, color 0.2s ease;
+}
+
+[data-layer-gate="bar"] {
+  transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, color 0.2s ease;
+}
+
+.lo-global-dock-button {
+  transition: background-color 0.15s ease, color 0.2s ease, border-color 0.3s ease, opacity 0.15s ease;
+}
+
+.lo-global-dock-button:not(:disabled):hover {
+  background: rgba(0, 0, 0, 0.03) !important;
 }
 
 .lo-command-score-value,
@@ -2738,6 +2768,12 @@ a {
   color: var(--lo-text-primary);
 }
 
+[data-theme="dark"] body,
+[data-theme="dark"] #root,
+[data-theme="dark"] .lo-app {
+  background-color: var(--lo-bg-deep);
+}
+
 [data-theme="dark"] .lo-btc-detail-page {
   background:
     radial-gradient(circle at top right, var(--lo-bg-glow-brand), transparent 34%),
@@ -2921,6 +2957,16 @@ a {
   color: var(--lo-text-secondary);
 }
 
+[data-theme="dark"] .lo-command-signal-strip {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(255, 255, 255, 0.06) !important;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+[data-theme="dark"] .lo-global-dock-button:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
 [data-theme="dark"] [data-layer-gate="prompt"],
 [data-theme="dark"] .lo-topbar .lo-badge,
 [data-theme="dark"] [data-layer-gate="summary"] {
@@ -3013,6 +3059,21 @@ a {
 [data-theme="dark"] [style*="color: rgb(17, 24, 39)"],
 [data-theme="dark"] [style*="color: rgb(0, 0, 0)"] {
   color: var(--lo-text-primary) !important;
+}
+
+@media (hover: hover) {
+  .lo-nav-card {
+    cursor: pointer;
+  }
+
+  .lo-nav-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  }
+
+  [data-theme="dark"] .lo-nav-card:hover {
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28), 0 1px 0 rgba(255, 255, 255, 0.05) inset;
+  }
 }
 
 [data-theme="dark"] [style*="color: rgb(60, 60, 67)"],
@@ -3642,5 +3703,242 @@ a {
   .lo-floating-note-textarea {
     min-height: 168px;
     font-size: var(--lo-text-label);
+  }
+}
+
+.meme-radar-panel {
+  margin-bottom: 24px;
+  padding: 14px 0 20px;
+  background: transparent;
+  border-top: 1px solid var(--lo-border);
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.meme-radar-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.meme-radar-role-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--lo-brand-soft);
+  color: var(--lo-brand);
+  font-size: var(--lo-text-meta);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.meme-radar-title {
+  margin-top: 8px;
+  font-size: var(--lo-text-secondary-value);
+  font-weight: 700;
+  color: var(--lo-text-primary);
+}
+
+.meme-radar-note {
+  margin-top: 4px;
+  font-size: var(--lo-text-label);
+  line-height: 1.6;
+  color: var(--lo-text-secondary);
+}
+
+.meme-radar-updated {
+  flex-shrink: 0;
+  padding-top: 6px;
+  font-size: var(--lo-text-meta);
+  color: var(--lo-text-secondary);
+}
+
+.meme-radar-status {
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--lo-bg-card);
+  border: 1px dashed var(--lo-border);
+  font-size: var(--lo-text-label);
+  color: var(--lo-text-secondary);
+}
+
+.meme-radar-status.is-error {
+  color: var(--lo-red);
+}
+
+.meme-radar-list {
+  display: grid;
+  gap: 10px;
+}
+
+.meme-radar-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) repeat(3, minmax(100px, 0.7fr)) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--lo-bg-card);
+  border: 1px solid var(--lo-border);
+  color: inherit;
+  text-decoration: none;
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.meme-radar-item:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--lo-brand) 28%, var(--lo-border));
+  box-shadow: 0 10px 24px rgba(13, 24, 28, 0.08);
+}
+
+.meme-radar-main {
+  min-width: 0;
+}
+
+.meme-radar-symbol-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.meme-radar-symbol {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--lo-text-primary);
+}
+
+.meme-radar-chain {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--lo-brand-soft);
+  color: var(--lo-brand);
+  font-size: var(--lo-text-meta);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.meme-radar-subline {
+  margin-top: 4px;
+  font-size: var(--lo-text-meta);
+  color: var(--lo-text-secondary);
+}
+
+.meme-radar-metric {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.meme-radar-metric-label {
+  font-size: var(--lo-text-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--lo-text-muted);
+}
+
+.meme-radar-metric-value {
+  font-size: var(--lo-text-label);
+  font-weight: 700;
+  color: var(--lo-text-primary);
+}
+
+.meme-radar-metric-value.is-up {
+  color: var(--lo-green);
+}
+
+.meme-radar-metric-value.is-down {
+  color: var(--lo-red);
+}
+
+.meme-radar-metric-value.is-flat {
+  color: var(--lo-text-secondary);
+}
+
+.meme-radar-show-more {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 6px 2px 0;
+  text-align: left;
+  font-size: var(--lo-text-label);
+  font-weight: 700;
+  color: var(--lo-brand);
+  cursor: pointer;
+}
+
+.meme-radar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.meme-radar-action-btn {
+  appearance: none;
+  border: 1px solid var(--lo-border);
+  background: transparent;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: var(--lo-text-meta);
+  font-weight: 700;
+  color: var(--lo-brand);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.meme-radar-action-btn:hover:not(:disabled) {
+  background: var(--lo-brand-soft);
+  border-color: var(--lo-brand);
+}
+
+.meme-radar-action-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.meme-radar-ext-link {
+  font-size: var(--lo-text-meta);
+  color: var(--lo-text-muted);
+  text-decoration: none;
+  padding: 0 2px;
+}
+
+.meme-radar-ext-link:hover {
+  color: var(--lo-brand);
+}
+
+@keyframes lo-slot-flash {
+  0% { box-shadow: 0 0 0 2px var(--lo-brand); }
+  60% { box-shadow: 0 0 0 3px var(--lo-brand); }
+  100% { box-shadow: none; }
+}
+
+.lo-slot-flash {
+  animation: lo-slot-flash 0.6s ease-out forwards;
+}
+
+@media (max-width: 860px) {
+  .meme-radar-head {
+    flex-direction: column;
+  }
+
+  .meme-radar-item {
+    grid-template-columns: 1fr;
+  }
+
+  .meme-radar-actions {
+    flex-direction: row;
   }
 }

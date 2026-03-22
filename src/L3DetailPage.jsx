@@ -163,6 +163,44 @@ function getDexDirection(changePct) {
   return "➡️ 持平";
 }
 
+function getChartLabelFill(lineColor) {
+  if (typeof document !== "undefined" && document.documentElement.dataset.theme === "dark") {
+    return "rgba(255,255,255,0.50)";
+  }
+  return lineColor || "rgba(15,23,42,0.55)";
+}
+
+function renderDexEndLabel(data, lineName, lineColor, changePct) {
+  return function DexEndLabel(props) {
+    const { x, y, index, value } = props || {};
+    if (!Array.isArray(data) || data.length < 2 || index !== data.length - 1 || x == null || y == null) return null;
+    const numericValue = toNumber(value);
+    if (numericValue == null) return null;
+    const pct = toNumber(changePct);
+    const arrow = pct == null ? "" : pct > 5 ? " ↑" : pct < -5 ? " ↓" : "";
+    const formatted = numericValue >= 1e9
+      ? `${(numericValue / 1e9).toFixed(1)}B`
+      : numericValue >= 1e6
+        ? `${(numericValue / 1e6).toFixed(0)}M`
+        : numericValue >= 1e3
+          ? `${(numericValue / 1e3).toFixed(0)}K`
+          : numericValue.toFixed(0);
+    return (
+      <text
+        x={x + 8}
+        y={y}
+        fill={getChartLabelFill(lineColor)}
+        fontSize={10}
+        fontFamily="var(--lo-num-font)"
+        textAnchor="start"
+        dominantBaseline="middle"
+      >
+        {lineName} {formatted}{arrow}
+      </text>
+    );
+  };
+}
+
 function formatMonthDay(value) {
   if (!value) return "";
   const date = new Date(value);
@@ -672,9 +710,9 @@ export default function L3DetailPage({ onBack, memeTopData }) {
               error={dexChartData.length ? "" : "数据暂时不可用"}
               height={220}
             >
-              <div style={{ height: 220, borderRadius: 16, background: "rgba(120,120,128,0.04)", padding: "10px 6px 0" }}>
+              <div style={{ height: 220, borderRadius: 16, background: "rgba(120,120,128,0.04)", padding: "10px 6px 0", overflow: "visible" }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={dexChartData} margin={{ top: 12, right: 12, left: 4, bottom: 12 }}>
+                  <LineChart data={dexChartData} margin={{ top: 12, right: 60, left: 4, bottom: 12 }}>
                     <CartesianGrid stroke="rgba(60,60,67,0.08)" vertical={false} />
                     <XAxis
                       dataKey="label"
@@ -693,9 +731,9 @@ export default function L3DetailPage({ onBack, memeTopData }) {
                     />
                     <Tooltip content={<CustomTooltip formatters={{ solana: fmtNum, bsc: fmtNum, base: fmtNum }} />} />
                     <Legend verticalAlign="bottom" align="left" iconType="circle" wrapperStyle={{ paddingTop: 8, fontSize: 11 }} />
-                    <Line type="monotone" dataKey="solana" name="Solana" stroke="#9945FF" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} connectNulls />
-                    <Line type="monotone" dataKey="bsc" name="BSC" stroke="#F3BA2F" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} connectNulls />
-                    <Line type="monotone" dataKey="base" name="Base" stroke="#0052FF" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} connectNulls />
+                    <Line type="monotone" dataKey="solana" name="Solana" stroke="#9945FF" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} connectNulls label={renderDexEndLabel(dexChartData, "Solana", "#9945FF", dexState.data?.chains?.solana?.changePct)} />
+                    <Line type="monotone" dataKey="bsc" name="BSC" stroke="#F3BA2F" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} connectNulls label={renderDexEndLabel(dexChartData, "BSC", "#F3BA2F", dexState.data?.chains?.bsc?.changePct)} />
+                    <Line type="monotone" dataKey="base" name="Base" stroke="#0052FF" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} connectNulls label={renderDexEndLabel(dexChartData, "Base", "#0052FF", dexState.data?.chains?.base?.changePct)} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>

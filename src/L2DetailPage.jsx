@@ -194,6 +194,62 @@ function getChainDirection(changePct, currentValue) {
   return "➡️ 持平";
 }
 
+function getChartLabelFill(lineColor) {
+  if (typeof document !== "undefined" && document.documentElement.dataset.theme === "dark") {
+    return "rgba(255,255,255,0.50)";
+  }
+  return lineColor || "rgba(15,23,42,0.55)";
+}
+
+function renderLineEndLabel(data, lineName, lineColor, formatter = fmtNum) {
+  return function EndLabel(props) {
+    const { x, y, index, value } = props || {};
+    if (!Array.isArray(data) || data.length < 2 || index !== data.length - 1 || x == null || y == null) return null;
+    const renderedValue = formatter(value);
+    if (!renderedValue || renderedValue === "—") return null;
+    return (
+      <text
+        x={x + 8}
+        y={y}
+        fill={getChartLabelFill(lineColor)}
+        fontSize={10}
+        fontFamily="var(--lo-num-font)"
+        textAnchor="start"
+        dominantBaseline="middle"
+      >
+        {lineName} {renderedValue}
+      </text>
+    );
+  };
+}
+
+function renderStableEndAnnotation(data, stableChange7d) {
+  return function StableEndAnnotation(props) {
+    const { x, y, index } = props || {};
+    if (!Array.isArray(data) || data.length < 2 || index !== data.length - 1 || x == null || y == null) return null;
+    const change = toNumber(stableChange7d);
+    if (change == null) return null;
+    const isUp = change > 0;
+    const color = isUp ? "var(--lo-green, #34C759)" : change < 0 ? "var(--lo-red, #FF3B30)" : "var(--lo-yellow, #FF9500)";
+    const arrow = isUp ? "↑" : change < 0 ? "↓" : "→";
+    const text = `${change > 0 ? "+" : change < 0 ? "-" : ""}${fmtBillions(Math.abs(change))} ${arrow}`;
+    return (
+      <text
+        x={x + 8}
+        y={y}
+        fill={color}
+        fontSize={11}
+        fontFamily="var(--lo-num-font)"
+        fontWeight={600}
+        textAnchor="start"
+        dominantBaseline="middle"
+      >
+        {text}
+      </text>
+    );
+  };
+}
+
 async function fetchJSON(url, timeout = 12000) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeout);
@@ -597,9 +653,9 @@ export default function L2DetailPage({ onBack }) {
           action={<PeriodButtons options={Object.keys(HISTORY_PERIOD_DAYS)} active={historyPeriod} onChange={setHistoryPeriod} />}
         >
           <ChartStateBlock loading={false} error={historyChartData.length ? "" : "数据暂时不可用"} onRetry={loadHistory} height={200}>
-            <div style={{ height: 200, borderRadius: 16, background: "rgba(120,120,128,0.04)", padding: "10px 6px 0" }}>
+            <div style={{ height: 200, borderRadius: 16, background: "rgba(120,120,128,0.04)", padding: "10px 6px 0", overflow: "visible" }}>
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={historyChartData} margin={{ top: 12, right: 12, left: 4, bottom: 12 }}>
+                <LineChart data={historyChartData} margin={{ top: 12, right: 60, left: 4, bottom: 12 }}>
                   <CartesianGrid stroke="rgba(60,60,67,0.08)" vertical={false} />
                   <XAxis
                     dataKey="label"
@@ -618,7 +674,17 @@ export default function L2DetailPage({ onBack }) {
                     width={44}
                   />
                   <Tooltip content={<CustomTooltip formatters={{ total: fmtNum }} />} />
-                  <Line type="monotone" dataKey="total" name="稳定币总量" stroke="#007AFF" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} connectNulls />
+                  <Line
+                    type="monotone"
+                    dataKey="total"
+                    name="稳定币总量"
+                    stroke="#007AFF"
+                    strokeWidth={2.5}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                    connectNulls
+                    label={renderStableEndAnnotation(historyChartData, total7dChange)}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -667,9 +733,9 @@ export default function L2DetailPage({ onBack }) {
           action={<PeriodButtons options={Object.keys(CHAIN_PERIOD_DAYS)} active={chainPeriod} onChange={setChainPeriod} />}
         >
           <ChartStateBlock loading={false} error={chainChartData.length ? "" : "数据暂时不可用"} onRetry={loadChains} height={200}>
-            <div style={{ height: 200, borderRadius: 16, background: "rgba(120,120,128,0.04)", padding: "10px 6px 0" }}>
+            <div style={{ height: 200, borderRadius: 16, background: "rgba(120,120,128,0.04)", padding: "10px 6px 0", overflow: "visible" }}>
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chainChartData} margin={{ top: 12, right: 12, left: 4, bottom: 12 }}>
+                <LineChart data={chainChartData} margin={{ top: 12, right: 60, left: 4, bottom: 12 }}>
                   <CartesianGrid stroke="rgba(60,60,67,0.08)" vertical={false} />
                   <XAxis
                     dataKey="label"
@@ -689,9 +755,9 @@ export default function L2DetailPage({ onBack }) {
                   />
                   <Tooltip content={<CustomTooltip formatters={{ solana: fmtNum, bsc: fmtNum, base: fmtNum }} />} />
                   <Legend verticalAlign="bottom" align="left" iconType="circle" wrapperStyle={{ paddingTop: 8, fontSize: 11 }} />
-                  <Line type="monotone" dataKey="solana" name="Solana" stroke="#9945FF" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} connectNulls />
-                  <Line type="monotone" dataKey="bsc" name="BSC" stroke="#F3BA2F" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} connectNulls />
-                  <Line type="monotone" dataKey="base" name="Base" stroke="#0052FF" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} connectNulls />
+                  <Line type="monotone" dataKey="solana" name="Solana" stroke="#9945FF" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} connectNulls label={renderLineEndLabel(chainChartData, "Solana", "#9945FF")} />
+                  <Line type="monotone" dataKey="bsc" name="BSC" stroke="#F3BA2F" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} connectNulls label={renderLineEndLabel(chainChartData, "BSC", "#F3BA2F")} />
+                  <Line type="monotone" dataKey="base" name="Base" stroke="#0052FF" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} connectNulls label={renderLineEndLabel(chainChartData, "Base", "#0052FF")} />
                 </LineChart>
               </ResponsiveContainer>
             </div>

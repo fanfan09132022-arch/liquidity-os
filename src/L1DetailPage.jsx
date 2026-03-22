@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CartesianGrid,
+  Label,
   Legend,
   Line,
   LineChart,
@@ -259,6 +260,41 @@ function ChartSkeleton({ height }) {
       }}
     />
   );
+}
+
+function getChartLabelFill(lineColor) {
+  if (typeof document !== "undefined" && document.documentElement.dataset.theme === "dark") {
+    return "rgba(255,255,255,0.50)";
+  }
+  return lineColor || "rgba(15,23,42,0.55)";
+}
+
+function formatTrillionsCompact(value) {
+  const numeric = toNumber(value);
+  if (numeric == null) return "—";
+  return `${numeric.toFixed(2)}T`;
+}
+
+function renderLineEndLabel(data, lineName, lineColor, formatter = formatTrillionsCompact) {
+  return function EndLabel(props) {
+    const { x, y, index, value } = props || {};
+    if (!Array.isArray(data) || data.length < 2 || index !== data.length - 1 || x == null || y == null) return null;
+    const renderedValue = formatter(value);
+    if (!renderedValue || renderedValue === "—") return null;
+    return (
+      <text
+        x={x + 8}
+        y={y}
+        fill={getChartLabelFill(lineColor)}
+        fontSize={10}
+        fontFamily="var(--lo-num-font)"
+        textAnchor="start"
+        dominantBaseline="middle"
+      >
+        {lineName} {renderedValue}
+      </text>
+    );
+  };
 }
 
 function PeriodButtons({ options, active, onChange }) {
@@ -542,6 +578,7 @@ export default function L1DetailPage({ onBack }) {
     };
   }, [current?.gnl, summaryState.data]);
   const gnlExtrema = useMemo(() => getSeriesExtrema(gnlChartData, "gnl"), [gnlChartData]);
+  const shouldAnnotateGnl = gnlChartData.length >= 4;
 
   return (
     <div className="lo-btc-detail-page" style={{ ...pageBodyStyle, borderTop: "2px solid rgba(77,166,255,0.3)" }}>
@@ -619,9 +656,9 @@ export default function L1DetailPage({ onBack }) {
           action={<PeriodButtons options={Object.keys(GNL_PERIOD_DAYS)} active={historyPeriod} onChange={setHistoryPeriod} />}
         >
           <ChartStateBlock loading={false} error={gnlChartData.length ? "" : "数据暂时不可用"} onRetry={loadFredData} height={CHART_HEIGHT}>
-            <div style={{ height: CHART_HEIGHT, borderRadius: 16, background: "rgba(120,120,128,0.04)", padding: "10px 6px 0" }}>
+            <div style={{ height: CHART_HEIGHT, borderRadius: 16, background: "rgba(120,120,128,0.04)", padding: "10px 6px 0", overflow: "visible" }}>
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={gnlChartData} margin={{ top: 8, right: 12, left: -12, bottom: 12 }}>
+                <LineChart data={gnlChartData} margin={{ top: 8, right: 60, left: -12, bottom: 12 }}>
                   <CartesianGrid stroke="rgba(60,60,67,0.08)" vertical={false} />
                   <XAxis
                     dataKey="axisLabel"
@@ -654,38 +691,39 @@ export default function L1DetailPage({ onBack }) {
                     strokeWidth={2.5}
                     dot={false}
                     activeDot={{ r: 4 }}
+                    label={renderLineEndLabel(gnlChartData, "GNL", C.blue, formatTrillionsCompact)}
                   />
-                  {gnlExtrema.maxPoint ? (
+                  {shouldAnnotateGnl && gnlExtrema.maxPoint ? (
                     <ReferenceDot
                       x={gnlExtrema.maxPoint.axisLabel}
                       y={gnlExtrema.maxPoint.gnl}
                       r={4}
-                      fill={C.blue}
-                      stroke="#fff"
-                      strokeWidth={1.5}
-                      label={{
-                        value: `${formatMonthDay(gnlExtrema.maxPoint.date)} · ${fmtTrillions(gnlExtrema.maxPoint.gnl)}`,
-                        position: "top",
-                        fill: C.labelTer,
-                        fontSize: 10,
-                      }}
-                    />
+                      fill={"var(--lo-brand, #007AFF)"}
+                      stroke="none"
+                    >
+                      <Label
+                        value={`${fmtTrillions(gnlExtrema.maxPoint.gnl)} · ${formatMonthDay(gnlExtrema.maxPoint.date)}`}
+                        position="top"
+                        offset={10}
+                        style={{ fontSize: 10, fill: "var(--lo-text-muted, rgba(60,60,67,0.4))", fontFamily: "var(--lo-num-font)" }}
+                      />
+                    </ReferenceDot>
                   ) : null}
-                  {gnlExtrema.minPoint && gnlExtrema.minPoint !== gnlExtrema.maxPoint ? (
+                  {shouldAnnotateGnl && gnlExtrema.minPoint && gnlExtrema.minPoint !== gnlExtrema.maxPoint ? (
                     <ReferenceDot
                       x={gnlExtrema.minPoint.axisLabel}
                       y={gnlExtrema.minPoint.gnl}
                       r={4}
-                      fill={C.orange}
-                      stroke="#fff"
-                      strokeWidth={1.5}
-                      label={{
-                        value: `${formatMonthDay(gnlExtrema.minPoint.date)} · ${fmtTrillions(gnlExtrema.minPoint.gnl)}`,
-                        position: "bottom",
-                        fill: C.labelTer,
-                        fontSize: 10,
-                      }}
-                    />
+                      fill={"var(--lo-red, #FF3B30)"}
+                      stroke="none"
+                    >
+                      <Label
+                        value={`${fmtTrillions(gnlExtrema.minPoint.gnl)} · ${formatMonthDay(gnlExtrema.minPoint.date)}`}
+                        position="bottom"
+                        offset={10}
+                        style={{ fontSize: 10, fill: "var(--lo-text-muted, rgba(60,60,67,0.4))", fontFamily: "var(--lo-num-font)" }}
+                      />
+                    </ReferenceDot>
                   ) : null}
                 </LineChart>
               </ResponsiveContainer>
@@ -714,9 +752,9 @@ export default function L1DetailPage({ onBack }) {
         >
           {showComponents ? (
             <ChartStateBlock loading={false} error={gnlChartData.length ? "" : "数据暂时不可用"} onRetry={loadFredData} height={COMPONENT_HEIGHT}>
-              <div style={{ height: COMPONENT_HEIGHT, borderRadius: 16, background: "rgba(120,120,128,0.04)", padding: "10px 6px 0" }}>
+              <div style={{ height: COMPONENT_HEIGHT, borderRadius: 16, background: "rgba(120,120,128,0.04)", padding: "10px 6px 0", overflow: "visible" }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={gnlChartData} margin={{ top: 8, right: 12, left: -12, bottom: 12 }}>
+                  <LineChart data={gnlChartData} margin={{ top: 8, right: 60, left: -12, bottom: 12 }}>
                     <CartesianGrid stroke="rgba(60,60,67,0.08)" vertical={false} />
                     <XAxis
                       dataKey="axisLabel"
@@ -746,9 +784,9 @@ export default function L1DetailPage({ onBack }) {
                       labelFormatter={(_, payload) => formatDateLabel(payload?.[0]?.payload?.date)}
                     />
                     <Legend wrapperStyle={{ paddingTop: 10, fontSize: 11 }} />
-                    <Line type="monotone" dataKey="fed" name="Fed" stroke={C.blue} strokeWidth={2.2} dot={false} />
-                    <Line type="monotone" dataKey="tga" name="TGA" stroke={C.red} strokeWidth={2.2} dot={false} />
-                    <Line type="monotone" dataKey="rrp" name="RRP" stroke={C.orange} strokeWidth={2.2} dot={false} />
+                    <Line type="monotone" dataKey="fed" name="Fed" stroke={C.blue} strokeWidth={2.2} dot={false} label={renderLineEndLabel(gnlChartData, "Fed", C.blue, formatTrillionsCompact)} />
+                    <Line type="monotone" dataKey="tga" name="TGA" stroke={C.red} strokeWidth={2.2} dot={false} label={renderLineEndLabel(gnlChartData, "TGA", C.red, formatTrillionsCompact)} />
+                    <Line type="monotone" dataKey="rrp" name="RRP" stroke={C.orange} strokeWidth={2.2} dot={false} label={renderLineEndLabel(gnlChartData, "RRP", C.orange, formatTrillionsCompact)} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
