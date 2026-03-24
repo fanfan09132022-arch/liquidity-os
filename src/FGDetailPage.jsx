@@ -1,48 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { WORKER } from "./config.js";
-
-const C = {
-  bg: "#F2F2F7", card: "#fff", label: "#000", labelSec: "#3C3C43",
-  labelTer: "rgba(60,60,67,0.6)", labelQ: "rgba(60,60,67,0.4)",
-  sep: "rgba(60,60,67,0.16)", fill: "rgba(120,120,128,0.08)",
-  fill2: "rgba(120,120,128,0.12)",
-  blue: "#007AFF", green: "#34C759", orange: "#FF9500",
-  red: "#FF3B30", yellow: "#FFCC00", purple: "#AF52DE", teal: "#30B0C7",
-};
+import { NewsStrip } from "./components/NewsStrip.jsx";
+import SkeletonLine from "./components/shared/SkeletonLine";
+import DataStateCard from "./components/shared/DataStateCard";
+import { fmtNum, fmtPct, toNum } from "./lib/utils";
 
 const FNG_ENDPOINT = `${WORKER}/api/fg?limit=365`;
 const FUNDING_ENDPOINT = `${WORKER}/api/funding`;
 const OPEN_INTEREST_ENDPOINT = `${WORKER}/api/oi`;
-
-const pageBodyStyle = {
-  background: "#F2F2F7",
-  minHeight: "100vh",
-  fontFamily: "-apple-system,'Helvetica Neue',sans-serif",
-};
-
-const contentWrapStyle = {
-  padding: "16px 0 48px",
-};
-
-const cardStyle = {
-  background: "#fff",
-  borderRadius: 14,
-  boxShadow: "0 1px 3px rgba(0,0,0,0.07)",
-  margin: "0 16px 12px",
-  padding: "16px",
-};
-
-const labelStyle = {
-  fontSize: 12,
-  fontWeight: 700,
-  color: C.labelSec,
-  marginBottom: 6,
-};
-
-const numFontStyle = {
-  fontFamily: "var(--lo-num-font)",
-  fontVariantNumeric: "tabular-nums",
-};
 
 const gaugePointerAnimation = `
   @keyframes loFgPointerSwingIn {
@@ -52,29 +17,8 @@ const gaugePointerAnimation = `
   }
 `;
 
-function fmtNum(n) {
-  if (n == null || Number.isNaN(Number(n))) return "—";
-  const value = Number(n);
-  if (Math.abs(value) >= 1e12) return `${(value / 1e12).toFixed(2)}T`;
-  if (Math.abs(value) >= 1e9) return `${(value / 1e9).toFixed(1)}B`;
-  if (Math.abs(value) >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
-  if (Math.abs(value) >= 1e3) return `${(value / 1e3).toFixed(0)}K`;
-  return value.toFixed(value !== 0 && Math.abs(value) < 10 ? 2 : 0);
-}
-
-function fmtPct(n, digits = 2) {
-  if (n == null || Number.isNaN(Number(n))) return "—";
-  const value = Number(n);
-  return `${value > 0 ? "+" : ""}${value.toFixed(digits)}%`;
-}
-
-function toNumber(value) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : null;
-}
-
 function getFngLabel(value) {
-  const numeric = toNumber(value);
+  const numeric = toNum(value);
   if (numeric == null) return "未知";
   if (numeric <= 25) return "极度恐惧";
   if (numeric <= 45) return "恐惧";
@@ -84,17 +28,17 @@ function getFngLabel(value) {
 }
 
 function getFngColor(value) {
-  const numeric = toNumber(value);
-  if (numeric == null) return C.labelQ;
-  if (numeric <= 25) return "#FF3B30";
-  if (numeric <= 45) return "#FF9500";
-  if (numeric <= 55) return "#FFCC00";
-  if (numeric <= 75) return "#34C759";
-  return "#30D158";
+  const numeric = toNum(value);
+  if (numeric == null) return "var(--lo-text-muted)";
+  if (numeric <= 25) return "var(--lo-signal-bear)";
+  if (numeric <= 45) return "var(--lo-signal-neutral)";
+  if (numeric <= 55) return "var(--lo-signal-neutral)";
+  if (numeric <= 75) return "var(--lo-signal-bull)";
+  return "var(--lo-signal-bull)";
 }
 
 function getFngSignalColor(value) {
-  const numeric = toNumber(value);
+  const numeric = toNum(value);
   if (numeric == null) return "none";
   if (numeric >= 55) return "green";
   if (numeric >= 30) return "yellow";
@@ -170,26 +114,13 @@ function describeArc(centerX, centerY, radius, startAngle, endAngle) {
   return `M ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArcFlag} 0 ${end.x} ${end.y}`;
 }
 
-function SkeletonLine({ width = "100%", height = 12, radius = 999 }) {
-  return (
-    <div
-      style={{
-        width,
-        height,
-        borderRadius: radius,
-        background: "linear-gradient(90deg, rgba(120,120,128,0.08), rgba(120,120,128,0.18), rgba(120,120,128,0.08))",
-      }}
-    />
-  );
-}
-
 function SignalDot({ color = "none", size = 10, glow = false }) {
   const colorMap = {
-    green: "var(--lo-green, #34C759)",
-    red: "var(--lo-red, #FF3B30)",
-    yellow: "var(--lo-orange, #FF9500)",
-    blue: "var(--lo-blue, #007AFF)",
-    none: "var(--lo-muted-strong, rgba(60,60,67,0.42))",
+    green: "var(--lo-signal-bull)",
+    red: "var(--lo-signal-bear)",
+    yellow: "var(--lo-signal-neutral)",
+    blue: "var(--lo-brand)",
+    none: "var(--lo-text-muted)",
   };
   const dotColor = colorMap[color] || colorMap.none;
   return (
@@ -209,31 +140,31 @@ function SignalDot({ color = "none", size = 10, glow = false }) {
 }
 
 function getFngBorderColor(value) {
-  const numeric = toNumber(value);
-  if (numeric == null) return "rgba(255,255,255,0.08)";
-  if (numeric < 30) return "rgba(255,77,77,0.4)";
-  if (numeric < 55) return "rgba(240,180,41,0.35)";
-  return "rgba(57,211,83,0.35)";
+  const numeric = toNum(value);
+  if (numeric == null) return "var(--lo-border)";
+  if (numeric < 30) return "color-mix(in srgb, var(--lo-signal-bear) 40%, transparent)";
+  if (numeric < 55) return "color-mix(in srgb, var(--lo-yellow) 35%, transparent)";
+  return "color-mix(in srgb, var(--lo-signal-bull) 35%, transparent)";
 }
 
 function getComparisonDirection(entryValue, todayValue) {
-  const entry = toNumber(entryValue);
-  const today = toNumber(todayValue);
-  if (entry == null || today == null) return { symbol: "=", color: C.labelTer };
-  if (entry > today) return { symbol: "↑", color: "var(--lo-green, #34C759)" };
-  if (entry < today) return { symbol: "↓", color: "var(--lo-red, #FF3B30)" };
-  return { symbol: "=", color: "var(--lo-yellow, #FF9500)" };
+  const entry = toNum(entryValue);
+  const today = toNum(todayValue);
+  if (entry == null || today == null) return { symbol: "=", color: "var(--lo-text-muted)" };
+  if (entry > today) return { symbol: "↑", color: "var(--lo-signal-bull)" };
+  if (entry < today) return { symbol: "↓", color: "var(--lo-signal-bear)" };
+  return { symbol: "=", color: "var(--lo-signal-neutral)" };
 }
 
 function Gauge({ value }) {
-  const numeric = Math.max(0, Math.min(100, toNumber(value) ?? 0));
+  const numeric = Math.max(0, Math.min(100, toNum(value) ?? 0));
   const angle = -90 + (numeric / 100) * 180;
   const segments = [
-    { start: -90, end: -45, color: "#FF3B30" },
-    { start: -45, end: -9, color: "#FF9500" },
-    { start: -9, end: 9, color: "#FFCC00" },
-    { start: 9, end: 45, color: "#34C759" },
-    { start: 45, end: 90, color: "#30D158" },
+    { start: -90, end: -45, color: "var(--lo-signal-bear)" },
+    { start: -45, end: -9, color: "var(--lo-signal-neutral)" },
+    { start: -9, end: 9, color: "var(--lo-signal-neutral)" },
+    { start: 9, end: 45, color: "var(--lo-signal-bull)" },
+    { start: 45, end: 90, color: "var(--lo-signal-bull)" },
   ];
 
   return (
@@ -269,70 +200,23 @@ function Gauge({ value }) {
           y1="140"
           x2="140"
           y2="56"
-          stroke="#111827"
+          stroke="var(--lo-text-primary)"
           strokeWidth="6"
           strokeLinecap="round"
         />
-        <circle cx="140" cy="140" r="11" fill="#111827" />
-        <circle cx="140" cy="140" r="5" fill="#fff" />
+        <circle cx="140" cy="140" r="11" fill="var(--lo-text-primary)" />
+        <circle cx="140" cy="140" r="5" fill="var(--lo-bg-card)" />
       </g>
     </svg>
   );
 }
 
-function DataStateCard({ title, subtitle, loading, error, onRetry, children }) {
-  return (
-    <section style={cardStyle}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginBottom: 14, alignItems: "flex-start" }}>
-        <div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", letterSpacing: -0.2 }}>{title}</div>
-          {subtitle ? (
-            <div style={{ fontSize: 12, color: C.labelTer, lineHeight: 1.55, marginTop: 4 }}>{subtitle}</div>
-          ) : null}
-        </div>
-      </div>
-
-      {loading ? (
-        <div style={{ display: "grid", gap: 12 }}>
-          <SkeletonLine width="36%" height={14} />
-          <SkeletonLine width="100%" height={180} radius={20} />
-          <SkeletonLine width="54%" height={12} />
-          <SkeletonLine width="68%" height={12} />
-        </div>
-      ) : error ? (
-        <div style={{ display: "grid", gap: 12 }}>
-          <div style={{ fontSize: 13, color: C.red }}>{error}</div>
-          {onRetry ? (
-            <button
-              type="button"
-              onClick={onRetry}
-              style={{
-                width: "fit-content",
-                border: "none",
-                borderRadius: 10,
-                background: "rgba(255,59,48,0.08)",
-                color: C.red,
-                fontSize: 12,
-                fontWeight: 700,
-                padding: "8px 12px",
-                cursor: "pointer",
-              }}
-            >
-              重试
-            </button>
-          ) : null}
-        </div>
-      ) : children}
-    </section>
-  );
-}
-
 function UnavailableCard({ title, subtitle }) {
   return (
-    <section style={cardStyle}>
-      <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 4 }}>{title}</div>
-      <div style={{ fontSize: 12, color: C.labelTer, lineHeight: 1.55, marginBottom: 14 }}>{subtitle}</div>
-      <div style={{ fontSize: 13, color: C.labelTer }}>数据暂时不可用</div>
+    <section className="lo-detail-card">
+      <div className="lo-dsc__title" style={{ marginBottom: 4 }}>{title}</div>
+      <div className="lo-text-footnote" style={{ marginBottom: 14 }}>{subtitle}</div>
+      <div className="lo-dsc__error-text" style={{ color: "var(--lo-text-muted)" }}>数据暂时不可用</div>
     </section>
   );
 }
@@ -349,7 +233,7 @@ export default function FGDetailPage({ onBack }) {
       if (!response.ok) throw new Error("F&G 数据请求失败");
       const payload = await response.json();
       const entries = (payload?.data || []).map((entry) => {
-        const numericValue = toNumber(entry?.value);
+        const numericValue = toNum(entry?.value);
         const timeMs = timestampToMs(entry?.timestamp);
         return {
           value: numericValue,
@@ -370,7 +254,7 @@ export default function FGDetailPage({ onBack }) {
 
     const fundingResult = await fetch(FUNDING_ENDPOINT)
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error("funding"))))
-      .then((payload) => toNumber(payload?.data?.[0]?.fundingRate))
+      .then((payload) => toNum(payload?.data?.[0]?.fundingRate))
       .catch(() => null);
 
     setFundingState({ loading: false, data: fundingResult != null ? { fundingRate: fundingResult } : null });
@@ -378,7 +262,7 @@ export default function FGDetailPage({ onBack }) {
     const oiResult = await fetch(OPEN_INTEREST_ENDPOINT)
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error("oi"))))
       .then((payload) => {
-        const currentOiUsd = toNumber(payload?.data?.[0]?.oiUsd);
+        const currentOiUsd = toNum(payload?.data?.[0]?.oiUsd);
         return currentOiUsd != null ? { openInterestUsd: currentOiUsd } : null;
       })
       .catch(() => null);
@@ -429,20 +313,9 @@ export default function FGDetailPage({ onBack }) {
   }, [oiState.data]);
 
   return (
-    <div className="lo-btc-detail-page" style={{ ...pageBodyStyle, borderTop: `2px solid ${getFngBorderColor(fngDerived.currentValue)}` }}>
-      <header className="lo-btc-detail-topbar">
-        <div className="lo-btc-detail-topbar-inner">
-          <button type="button" className="lo-btc-detail-back" onClick={onBack}>
-            ← 返回
-          </button>
-          <div className="lo-btc-detail-heading">
-            <h1 className="lo-btc-detail-title">F&amp;G · 市场情绪</h1>
-            <p className="lo-btc-detail-subtitle">恐惧贪婪指数 · 资金费率 · 多空结构</p>
-          </div>
-        </div>
-      </header>
-
-      <main style={contentWrapStyle}>
+    <div className="lo-btc-detail-page lo-detail-page" style={{ borderTop: `2px solid ${getFngBorderColor(fngDerived.currentValue)}` }}>
+      <main className="lo-detail-content">
+        <NewsStrip panel="fg" />
         <DataStateCard
           title="情绪仪表盘"
           subtitle="自动读取 Fear & Greed 历史，先看情绪位置，再看过去一年里相同位置曾出现在哪些时段。"
@@ -450,50 +323,39 @@ export default function FGDetailPage({ onBack }) {
           error={fngState.error}
           onRetry={loadFng}
         >
-          <div style={{ display: "grid", gap: 18 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 360px) minmax(0, 1fr)", gap: 18, alignItems: "center" }}>
-              <div style={{ display: "grid", justifyItems: "center", gap: 6 }}>
+          <div className="lo-d-grid" style={{ gap: 18 }}>
+            <div className="lo-fg-gauge-layout">
+              <div className="lo-fg-gauge-center">
                 <Gauge value={fngDerived.currentValue} />
-                <div style={{ ...numFontStyle, fontSize: 42, fontWeight: 760, letterSpacing: -1.5, color: "#111827" }}>
+                <div className="lo-metric lo-metric--xl" style={{ letterSpacing: -1.5, color: "var(--lo-text-primary)" }}>
                   {fngDerived.currentValue ?? "—"}
                 </div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: getFngColor(fngDerived.currentValue) }}>
+                <div className="lo-text-label-primary" style={{ color: getFngColor(fngDerived.currentValue) }}>
                   {fngDerived.currentLabel}
                 </div>
               </div>
 
-              <div style={{ display: "grid", gap: 14 }}>
-                <div style={{ padding: 14, borderRadius: 12, background: "rgba(15,23,42,0.04)" }}>
-                  <div style={labelStyle}>AI 趋势简评</div>
-                  <div style={{ fontSize: 14, lineHeight: 1.7, color: "#111827" }}>{fngDerived.trendComment}</div>
+              <div className="lo-d-grid" style={{ gap: 14 }}>
+                <div className="lo-inset-panel">
+                  <div className="lo-fg-label">AI 趋势简评</div>
+                  <div className="lo-text-label-primary" style={{ fontSize: 14, lineHeight: 1.7, color: "var(--lo-text-primary)" }}>{fngDerived.trendComment}</div>
                 </div>
 
                 <div>
-                  <div style={{ ...labelStyle, marginBottom: 10 }}>历史对比</div>
-                  <div style={{ display: "grid", gap: 8 }}>
+                  <div className="lo-fg-label" style={{ marginBottom: 10 }}>历史对比</div>
+                  <div className="lo-d-grid" style={{ gap: 8 }}>
                     {fngDerived.comparisons.map((item) => (
                       (() => {
                         const direction = getComparisonDirection(item.entry?.value, fngDerived.currentValue);
                         return (
-                      <div
-                        key={item.title}
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "72px 10px 72px minmax(0, 1fr)",
-                          gap: 10,
-                          alignItems: "center",
-                          padding: "8px 10px",
-                          borderRadius: 10,
-                          background: "rgba(120,120,128,0.05)",
-                        }}
-                      >
-                        <div style={{ fontSize: 12, color: C.labelTer }}>{item.title}</div>
+                      <div key={item.title} className="lo-fg-compare">
+                        <div className="lo-text-footnote" style={{ lineHeight: 1 }}>{item.title}</div>
                         <SignalDot color={getFngSignalColor(item.entry?.value)} size={10} />
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <div style={{ ...numFontStyle, fontSize: 13, fontWeight: 700, color: "#111827" }}>{item.entry?.value ?? "—"}</div>
-                          <div style={{ ...numFontStyle, fontSize: 12, fontWeight: 700, color: direction.color }}>{direction.symbol}</div>
+                        <div className="lo-d-flex-wrap" style={{ alignItems: "center", gap: 6 }}>
+                          <div className="lo-metric lo-metric--xs" style={{ color: "var(--lo-text-primary)" }}>{item.entry?.value ?? "—"}</div>
+                          <div className="lo-metric lo-metric--secondary" style={{ color: direction.color }}>{direction.symbol}</div>
                         </div>
-                        <div style={{ fontSize: 12, color: C.labelTer }}>{item.entry?.label || "无数据"}</div>
+                        <div className="lo-text-footnote" style={{ lineHeight: 1 }}>{item.entry?.label || "无数据"}</div>
                       </div>
                         );
                       })()
@@ -508,20 +370,19 @@ export default function FGDetailPage({ onBack }) {
         {fundingState.loading ? (
           <DataStateCard title="BTC 永续合约资金费率（全市场加权）" subtitle="读取 OKX 永续资金费率快照。" loading />
         ) : fundingState.data ? (
-          <section style={cardStyle}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#111827" }}>BTC 永续合约资金费率（全市场加权）</div>
-            <div style={{ fontSize: 12, color: C.labelTer, marginTop: 4, marginBottom: 14 }}>数据来源：OKX Futures</div>
-            <div style={{ display: "grid", gap: 12 }}>
-              <div style={{
-                ...numFontStyle,
+          <section className="lo-detail-card">
+            <div className="lo-dsc__title">BTC 永续合约资金费率（全市场加权）</div>
+            <div className="lo-dsc__subtitle" style={{ marginBottom: 14 }}>数据来源：OKX Futures</div>
+            <div className="lo-dsc__grid">
+              <div className="lo-metric" style={{
                 fontSize: 38,
                 fontWeight: 760,
                 letterSpacing: -1.2,
-                color: fundingState.data.fundingRate > 0 ? C.green : fundingState.data.fundingRate < 0 ? C.red : C.labelTer,
+                color: fundingState.data.fundingRate > 0 ? "var(--lo-signal-bull)" : fundingState.data.fundingRate < 0 ? "var(--lo-signal-bear)" : "var(--lo-text-muted)",
               }}>
                 {fmtPct(fundingState.data.fundingRate * 100, 4)}
               </div>
-              <div style={{ fontSize: "var(--lo-text-meta)", color: "var(--lo-text-muted, rgba(60,60,67,0.4))", lineHeight: 1.6 }}>
+              <div className="lo-text-meta-muted" style={{ lineHeight: 1.6 }}>
                 {fundingInterpretation}
               </div>
             </div>
@@ -533,17 +394,17 @@ export default function FGDetailPage({ onBack }) {
         {oiState.loading ? (
           <DataStateCard title="BTC 未平仓合约（OI）" subtitle="观察杠杆是否在跟随价格方向扩张。" loading />
         ) : oiState.data ? (
-          <section style={cardStyle}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#111827" }}>BTC 未平仓合约（OI）</div>
-            <div style={{ fontSize: 12, color: C.labelTer, marginTop: 4, marginBottom: 14 }}>数据来源：OKX Futures</div>
-            <div style={{ display: "grid", gap: 12 }}>
-              <div style={{ ...numFontStyle, fontSize: 38, fontWeight: 760, letterSpacing: -1.2, color: "#111827" }}>{fmtNum(oiState.data.openInterestUsd)}</div>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                <div style={{ fontSize: 13, color: C.labelTer }}>
+          <section className="lo-detail-card">
+            <div className="lo-dsc__title">BTC 未平仓合约（OI）</div>
+            <div className="lo-dsc__subtitle" style={{ marginBottom: 14 }}>数据来源：OKX Futures</div>
+            <div className="lo-dsc__grid">
+              <div className="lo-metric" style={{ fontSize: 38, fontWeight: 760, letterSpacing: -1.2, color: "var(--lo-text-primary)" }}>{fmtNum(oiState.data.openInterestUsd)}</div>
+              <div className="lo-d-flex-wrap" style={{ gap: 10, alignItems: "center" }}>
+                <div className="lo-text-footnote" style={{ fontSize: 13 }}>
                   OKX 返回的是 `oiUsd`，已为 USD 口径，不再做价格换算。
                 </div>
               </div>
-              <div style={{ display: "inline-flex", width: "fit-content", borderRadius: 999, padding: "7px 12px", background: "rgba(120,120,128,0.08)", fontSize: 12, fontWeight: 700, color: "#111827" }}>
+              <div className="lo-stat-pill" style={{ color: "var(--lo-text-primary)" }}>
                 {oiInterpretation}
               </div>
             </div>
@@ -552,37 +413,28 @@ export default function FGDetailPage({ onBack }) {
           <UnavailableCard title="BTC 未平仓合约（OI）" subtitle="数据来源：OKX Futures" />
         )}
 
-        <section style={cardStyle}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: "#111827" }}>BTC 多空比</div>
-          <div style={{ fontSize: 12, color: C.labelTer, marginTop: 4, marginBottom: 14 }}>数据来源：暂无可用数据源</div>
-          <div style={{ display: "grid", gap: 12 }}>
-            <div style={{ fontSize: 14, lineHeight: 1.7, color: C.labelTer }}>
+        <section className="lo-detail-card">
+          <div className="lo-dsc__title">BTC 多空比</div>
+          <div className="lo-dsc__subtitle" style={{ marginBottom: 14 }}>数据来源：暂无可用数据源</div>
+          <div className="lo-dsc__grid">
+            <div className="lo-text-footnote" style={{ fontSize: 14, lineHeight: 1.7 }}>
               主流交易所多空比接口均限制浏览器直连，该指标暂时停用。
             </div>
-            <div style={{ fontSize: 14, lineHeight: 1.7, color: C.labelTer }}>
+            <div className="lo-text-footnote" style={{ fontSize: 14, lineHeight: 1.7 }}>
               可前往 CoinGlass 网站手动查询。
             </div>
             <a
               href="https://www.coinglass.com/LongShortRatio"
               target="_blank"
               rel="noreferrer"
-              style={{
-                width: "fit-content",
-                borderRadius: 10,
-                background: "rgba(15,23,42,0.05)",
-                color: "#6B7280",
-                fontSize: 12,
-                fontWeight: 700,
-                padding: "8px 12px",
-                textDecoration: "none",
-              }}
+              className="lo-link-btn"
             >
               🔗 CoinGlass
             </a>
           </div>
         </section>
 
-        <div style={{ fontSize: 11, color: C.labelTer, padding: "6px 20px 0" }}>
+        <div className="lo-text-footnote" style={{ fontSize: 11, padding: "6px 20px 0" }}>
           数据来源：Alternative.me · OKX Futures · 每日自动更新
         </div>
       </main>

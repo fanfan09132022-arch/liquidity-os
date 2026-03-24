@@ -130,6 +130,24 @@ export function toNum(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+export function fmtBillions(v, digits = 1) {
+  if (v == null || Number.isNaN(Number(v))) return "—";
+  const n = Number(v);
+  if (Math.abs(n) >= 1e12) return `${(n / 1e12).toFixed(digits)}T`;
+  if (Math.abs(n) >= 1e9) return `${(n / 1e9).toFixed(digits)}B`;
+  if (Math.abs(n) >= 1e6) return `${(n / 1e6).toFixed(digits)}M`;
+  return n.toFixed(digits);
+}
+
+export function fmtTrillions(v) {
+  if (v == null || Number.isNaN(Number(v))) return "—";
+  const n = Number(v);
+  if (Math.abs(n) >= 1e12) return `${(n / 1e12).toFixed(2)}T`;
+  if (Math.abs(n) >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (Math.abs(n) >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+  return n.toFixed(3);
+}
+
 export function fmtTrillionsFromInput(v) {
   const n = toNum(v);
   return n == null ? "—" : n.toFixed(3) + "T";

@@ -6,3 +6,7 @@ output/
 .skill-drafts/
 .wrangler/
 .vite/
+.gstack/
+.vercel/
+.claude/
+*.log

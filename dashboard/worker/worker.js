@@ -8,6 +8,8 @@ const DEFAULT_HEADERS = {
   "User-Agent": "Mozilla/5.0 (compatible; LiquidityOS/1.0; +https://liquidityos.app)",
 };
 
+const CMC_BASE = "https://pro-api.coinmarketcap.com";
+
 const OKX_HEADERS = {
   Origin: "https://www.okx.com",
   Referer: "https://www.okx.com/",
@@ -16,17 +18,53 @@ const OKX_HEADERS = {
 const CACHE_TTL = {
   fg: 3600,
   binance: 300,
+  binanceWeb3: 300,
+  binanceSecurity: 1800,
   cg: 1800,
   cgChart: 3600,
+  cmc: 1800,
   llama: 1800,
   fred: 86400,
+  gmgn: 300,
+  gmgnSecurity: 1800,
   memeRadar: 300,
   all: 3600,
+  newsflash: 600,
 };
 
 const INTERNAL_CACHE_ORIGIN = "https://liquidityos-data.internal";
 const WORKER_PUBLIC_URL = "https://liquidityos-data.fanfan09132022.workers.dev";
-const CACHE_NAMESPACE = "v20260315-fix12";
+const CACHE_NAMESPACE = "v20260323-fix13";
+const NEWSFLASH_CONFIG = {
+  l0: {
+    path: "/v1/newsflash/important",
+    keywords: ["BTC", "Bitcoin", "比特币", "ETF", "矿工", "比特大陆"],
+  },
+  l1: {
+    path: "/v1/newsflash/important",
+    keywords: ["Fed", "CPI", "美联储", "利率", "通胀", "宏观", "FOMC", "降息", "加息", "M2"],
+  },
+  l2: {
+    path: "/v1/newsflash/onchain",
+    keywords: ["stablecoin", "稳定币", "USDT", "USDC", "DeFi", "TVL", "流动性", "净流入"],
+  },
+  l3: {
+    path: "/v1/newsflash",
+    keywords: ["情绪", "恐慌", "贪婪", "资金费率", "多空", "清算", "Meme", "MEME", "板块"],
+  },
+  fg: {
+    path: "/v1/newsflash",
+    keywords: ["恐慌", "贪婪", "极度", "情绪", "资金费率", "清算", "爆仓", "多空比"],
+  },
+};
+
+const BINANCE_CHAIN_MAP = {
+  sol: "CT_501",
+  solana: "CT_501",
+  bsc: "56",
+  base: "8453",
+  eth: "1",
+};
 
 function jsonResponse(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
@@ -78,6 +116,41 @@ async function rawFetch(url, { headers = {}, accept = "application/json", timeou
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function fetchBlockBeatsNewsflash(panel, env) {
+  const config = NEWSFLASH_CONFIG[panel];
+  if (!config) return [];
+  const apiKey = env.BLOCKBEATS_API_KEY;
+  if (!apiKey) return [];
+
+  const url = `http://api-pro.theblockbeats.info${config.path}?page=1&size=20&lang=cn`;
+  const res = await rawFetch(url, { headers: { "api-key": apiKey }, timeoutMs: 8000 });
+  if (!res.ok) return [];
+
+  let body;
+  try {
+    body = await res.json();
+  } catch {
+    return [];
+  }
+  // API returns { status:0, data: { page:N, data: [...items] } }
+  const items = Array.isArray(body.data?.data) ? body.data.data
+    : Array.isArray(body.data) ? body.data : null;
+  if (body.status !== 0 || !items) return [];
+
+  const keywords = config.keywords.map((k) => k.toLowerCase());
+  const filtered = items.filter((item) => {
+    const text = (item.title || item.content || "").toLowerCase();
+    return keywords.some((kw) => text.includes(kw));
+  });
+
+  return filtered.slice(0, 5).map((item) => ({
+    id: item.id,
+    title: item.title || item.content || "",
+    url: item.link || item.url || "",
+    time: item.add_time || item.published_at || 0,
+  }));
 }
 
 async function proxy(upstreamUrl, contentType = "application/json", headers = {}) {
@@ -152,6 +225,93 @@ async function fetchJsonWithRetry(url, options = {}, retries = 1, delayMs = 600)
   throw lastError || new Error("fetch_failed");
 }
 
+async function fetchCmcJson(env, path, params = {}) {
+  const apiKey = env?.CMC_API_KEY;
+  if (!apiKey) throw new Error("CMC_API_KEY not set");
+
+  const query = new URLSearchParams(
+    Object.fromEntries(Object.entries(params).filter(([, value]) => value != null && String(value) !== ""))
+  );
+  const url = `${CMC_BASE}${path}?${query.toString()}`;
+  const response = await rawFetch(url, {
+    timeoutMs: 10000,
+    headers: {
+      "X-CMC_PRO_API_KEY": apiKey,
+      Accept: "application/json",
+    },
+  });
+  const body = await response.text();
+  if (!response.ok) {
+    throw new Error(`CMC ${response.status}`);
+  }
+  return JSON.parse(body);
+}
+
+function normalizeChain(chain) {
+  return String(chain || "").trim().toLowerCase();
+}
+
+function toBinanceChainId(chain) {
+  return BINANCE_CHAIN_MAP[normalizeChain(chain)] || null;
+}
+
+const GMGN_PROXY = "https://gmgn-proxy-three.vercel.app/api/gmgn";
+
+async function fetchGmgnJson(env, path, params = {}) {
+  const proxyKey = env?.GMGN_PROXY_KEY;
+  if (!proxyKey) throw new Error("GMGN_PROXY_KEY not set");
+
+  const query = new URLSearchParams({
+    path,
+    ...Object.fromEntries(
+      Object.entries(params).filter(([, value]) => value != null && String(value) !== "")
+    ),
+  });
+
+  const url = `${GMGN_PROXY}?${query.toString()}`;
+  const response = await rawFetch(url, {
+    timeoutMs: 12000,
+    headers: {
+      "x-proxy-key": proxyKey,
+    },
+  });
+  const body = await response.text();
+  if (!response.ok) {
+    throw new Error(`GMGN proxy ${response.status}: ${body.slice(0, 200)}`);
+  }
+  return JSON.parse(body);
+}
+
+async function fetchBinanceWeb3Json(path) {
+  const upstreams = [
+    `https://dapi.binance.com/public/wallet-direct${path}`,
+    `https://www.binance.com/bapi/wallet-direct${path}`,
+  ];
+
+  let lastError = null;
+  for (const url of upstreams) {
+    try {
+      const response = await rawFetch(url, {
+        timeoutMs: 8000,
+        headers: {
+          "User-Agent": "binance-web3/1.0 (Skill)",
+          "Accept-Encoding": "identity",
+          "Content-Type": "application/json",
+        },
+      });
+      const body = await response.text();
+      if (!response.ok) {
+        throw new Error(`Binance Web3 ${response.status}`);
+      }
+      return JSON.parse(body);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("Binance Web3 fetch failed");
+}
+
 async function fetchTextOrThrow(url, options = {}) {
   const response = await rawFetch(url, options);
   const body = await response.text();
@@ -201,6 +361,12 @@ async function getFredObservations(series, env) {
 
 function latestObservation(observations) {
   return Array.isArray(observations) ? observations.find((item) => item?.date && item?.value && item.value !== ".") || null : null;
+}
+
+function prevObservation(observations) {
+  if (!Array.isArray(observations)) return null;
+  const valid = observations.filter((item) => item?.date && item?.value && item.value !== ".");
+  return valid[1] || null;
 }
 
 function parseStableHistoryPoints(payload) {
@@ -425,6 +591,60 @@ async function getMemeSummaryPayload() {
       source: "CoinGecko-categories",
       updated_at: new Date().toISOString(),
     };
+  });
+}
+
+async function getCmcMemeSummary(env) {
+  return getCachedJson("/internal/cmc/meme-category-v2", CACHE_TTL.cmc, async () => {
+    const payload = await fetchCmcJson(env, "/v1/cryptocurrency/categories", { limit: 5000 });
+    const categories = Array.isArray(payload?.data) ? payload.data : [];
+    const memeCat = categories.find((c) => String(c?.name || "").toLowerCase() === "memes")
+      || categories.find((c) => /^meme$/i.test(String(c?.name || "")))
+      || categories.find((c) => /meme/i.test(String(c?.name || "")) && toNumber(c?.num_tokens) > 1000);
+    if (!memeCat) {
+      return {
+        mcap: null,
+        mcap_change_24h: null,
+        volume_24h: null,
+        num_tokens: null,
+        source: "CMC-categories",
+        error: "meme category not found",
+        updated_at: new Date().toISOString(),
+      };
+    }
+    return {
+      mcap: toNumber(memeCat.market_cap),
+      mcap_change_24h: toNumber(memeCat.market_cap_change),
+      volume_24h: toNumber(memeCat.volume),
+      num_tokens: toNumber(memeCat.num_tokens),
+      source: "CMC-categories",
+      updated_at: new Date().toISOString(),
+    };
+  });
+}
+
+const CMC_MEME_CATEGORY_ID = "6051a82566fc1b42617d6dc6"; // "Memes" main category
+
+async function getCmcMemeMarkets(env) {
+  return getCachedJson("/internal/cmc/meme-markets", CACHE_TTL.cmc, async () => {
+    const payload = await fetchCmcJson(env, "/v1/cryptocurrency/category", {
+      id: CMC_MEME_CATEGORY_ID,
+      limit: "50",
+      convert: "USD",
+    });
+    const items = Array.isArray(payload?.data?.coins) ? payload.data.coins : [];
+    return items.map((item, index) => ({
+      rank: index + 1,
+      token: String(item?.symbol || "").toUpperCase(),
+      name: item?.name || "",
+      image: item?.id ? `https://s2.coinmarketcap.com/static/img/coins/64x64/${item.id}.png` : null,
+      logo: item?.id ? `https://s2.coinmarketcap.com/static/img/coins/64x64/${item.id}.png` : null,
+      price: toNumber(item?.quote?.USD?.price),
+      market_cap: toNumber(item?.quote?.USD?.market_cap),
+      change_24h_pct: toNumber(item?.quote?.USD?.percent_change_24h),
+      change_7d_pct: toNumber(item?.quote?.USD?.percent_change_7d),
+      volume_24h: toNumber(item?.quote?.USD?.volume_24h),
+    }));
   });
 }
 
@@ -875,16 +1095,31 @@ async function fetchFredObservationsLive(series, env) {
 
 function buildFredPayload(walcl, tga, rrp, now) {
   const fedLatest = latestObservation(walcl);
+  const fedPrev = prevObservation(walcl);
   const tgaLatest = latestObservation(tga);
+  const tgaPrev = prevObservation(tga);
   const rrpLatest = latestObservation(rrp);
+  const rrpPrev = prevObservation(rrp);
   const fedValue = toNumber(fedLatest?.value);
+  const fedPrevValue = toNumber(fedPrev?.value);
   const tgaValue = toNumber(tgaLatest?.value);
+  const tgaPrevValue = toNumber(tgaPrev?.value);
   const rrpValue = toNumber(rrpLatest?.value);
+  const rrpPrevValue = toNumber(rrpPrev?.value);
   const walclT = fedValue != null ? fedValue / 1_000_000 : null;
+  const walclTPrev = fedPrevValue != null ? fedPrevValue / 1_000_000 : null;
   const wtregenT = tgaValue != null ? tgaValue / 1_000_000 : null;
+  const wtregenTPrev = tgaPrevValue != null ? tgaPrevValue / 1_000_000 : null;
   const rrpontsydT = rrpValue != null ? rrpValue / 1_000 : null;
+  const rrpontsydTPrev = rrpPrevValue != null ? rrpPrevValue / 1_000 : null;
   const gnlValueT = walclT != null && wtregenT != null && rrpontsydT != null
     ? Number((walclT - wtregenT - rrpontsydT).toFixed(3))
+    : null;
+  const gnlPrevT = walclTPrev != null && wtregenTPrev != null && rrpontsydTPrev != null
+    ? Number((walclTPrev - wtregenTPrev - rrpontsydTPrev).toFixed(3))
+    : null;
+  const gnlChange7d = gnlValueT != null && gnlPrevT != null
+    ? Number((gnlValueT - gnlPrevT).toFixed(3))
     : null;
 
   return {
@@ -892,6 +1127,7 @@ function buildFredPayload(walcl, tga, rrp, now) {
     updated_at: now,
     gnl: {
       value_t: gnlValueT,
+      change_7d: gnlChange7d,
       date: fedLatest?.date || tgaLatest?.date || rrpLatest?.date || null,
     },
     gnl_value_t: gnlValueT,
@@ -989,16 +1225,57 @@ async function buildMacroSnapshot(env) {
   const dexBasePayload = await readTask("llama_dex_base", () => getLlamaDex("base"), null);
   await sleep(650);
   const dexBscPayload = await readTask("llama_dex_bsc", () => getLlamaDex("bsc"), null);
-  const memeSummaryDirect = await readTask(
-    "meme_summary",
-    () => fetchWorkerJson("/api/meme-summary"),
-    null
-  );
-  await sleep(800);
-  let memeMarkets = await readTask("cg_markets", () => getCgMarkets("meme-token", "50", "1"), []);
-  const memeSummary = memeSummaryDirect
-    ? { mcap: memeSummaryDirect.mcap, mcap_change_24h: memeSummaryDirect.mcap_change_24h }
-    : buildMemeSummary(Array.isArray(memeMarkets) ? buildMemeRows(memeMarkets) : []);
+  let memeSummary = null;
+  let memeMarkets = [];
+
+  try {
+    const cmcSummary = await readTask("cmc_meme_summary", () => getCmcMemeSummary(env), null);
+    if (cmcSummary?.mcap != null) {
+      memeSummary = { mcap: cmcSummary.mcap, mcap_change_24h: cmcSummary.mcap_change_24h };
+    }
+  } catch {
+    // CMC summary fallback below
+  }
+  await sleep(400);
+
+  try {
+    const cmcMarkets = await readTask("cmc_meme_markets", () => getCmcMemeMarkets(env), []);
+    if (Array.isArray(cmcMarkets) && cmcMarkets.length > 0) {
+      memeMarkets = cmcMarkets;
+      if (!memeSummary) {
+        memeSummary = buildMemeSummary(cmcMarkets);
+      }
+    }
+  } catch {
+    // CMC markets fallback below
+  }
+
+  if (!memeSummary || memeMarkets.length === 0) {
+    await sleep(800);
+    try {
+      if (!memeSummary) {
+        const cgSummary = await readTask("meme_summary", () => fetchWorkerJson("/api/meme-summary"), null);
+        if (cgSummary?.mcap != null) {
+          memeSummary = { mcap: cgSummary.mcap, mcap_change_24h: cgSummary.mcap_change_24h };
+        }
+      }
+      if (memeMarkets.length === 0) {
+        const cgMarkets = await readTask("cg_markets", () => getCgMarkets("meme-token", "50", "1"), []);
+        if (Array.isArray(cgMarkets) && cgMarkets.length > 0) {
+          memeMarkets = buildMemeRows(cgMarkets);
+          if (!memeSummary) {
+            memeSummary = buildMemeSummary(memeMarkets);
+          }
+        }
+      }
+    } catch {
+      // CoinGecko fallback failed
+    }
+  }
+
+  if (!memeSummary) {
+    memeSummary = { mcap: null, mcap_change_24h: null };
+  }
 
   const fgEntry = Array.isArray(fgPayload?.data) ? fgPayload.data[0] : null;
 
@@ -1015,7 +1292,7 @@ async function buildMacroSnapshot(env) {
   const stableSolana = buildStableChainSummary(stableSolanaPayload);
   const stableBsc = buildStableChainSummary(stableBscPayload);
 
-  const memeTopRows = Array.isArray(memeMarkets) ? buildMemeRows(memeMarkets) : [];
+  const memeTopRows = Array.isArray(memeMarkets) ? memeMarkets : [];
   const fred = buildFredPayload(walcl, tga, rrp, now);
 
   return {
@@ -1025,6 +1302,9 @@ async function buildMacroSnapshot(env) {
       label: fgEntry?.value_classification || null,
     },
     btc: btcSnapshot,
+    mvrv_z_score: btcSnapshot?.price != null && btcSnapshot?.ma_200 != null && btcSnapshot.ma_200 > 0
+      ? Number((btcSnapshot.price / btcSnapshot.ma_200).toFixed(2))
+      : null,
     meme: memeSummary,
     tvl,
     stablecoins: {
@@ -1043,7 +1323,7 @@ async function buildMacroSnapshot(env) {
     },
     fred,
     meme_top: {
-      source: "CoinGecko",
+      source: memeTopRows.length > 0 && String(memeTopRows[0]?.image || "").includes("coinmarketcap") ? "CMC" : "CoinGecko",
       updated_at: now,
       items: memeTopRows,
     },
@@ -1096,8 +1376,25 @@ export default {
         return jsonResponse(payload, 200, { "Cache-Control": `public, max-age=${CACHE_TTL.cgChart}` });
       }
 
+      if (pathname === "/api/cmc/meme-markets") {
+        try {
+          const payload = await getCmcMemeMarkets(env);
+          return jsonResponse(payload, 200, { "Cache-Control": `public, max-age=${CACHE_TTL.cmc}` });
+        } catch (error) {
+          return jsonResponse({ error: "cmc_failed", message: error.message }, 500);
+        }
+      }
+
       if (pathname === "/api/meme-summary") {
-        const payload = await getMemeSummaryPayload();
+        let payload = null;
+        try {
+          payload = await getCmcMemeSummary(env);
+        } catch {
+          // CMC failed, fallback below
+        }
+        if (!payload || payload.mcap == null) {
+          payload = await getMemeSummaryPayload();
+        }
         return jsonResponse(payload, 200, { "Cache-Control": "public, max-age=900" });
       }
 
@@ -1106,11 +1403,139 @@ export default {
         return jsonResponse(payload, 200, { "Cache-Control": `public, max-age=${CACHE_TTL.memeRadar}` });
       }
 
+      if (pathname === "/api/newsflash") {
+        const panel = searchParams.get("panel") || "l1";
+        const validPanels = ["l0", "l1", "l2", "l3", "fg"];
+        if (!validPanels.includes(panel)) {
+          return jsonResponse({ error: "invalid panel" }, 400);
+        }
+
+        const cacheKey = `${CACHE_NAMESPACE}:newsflash:${panel}`;
+
+        if (env.DATA_CACHE) {
+          try {
+            const cached = await env.DATA_CACHE.get(cacheKey, "json");
+            if (cached) return jsonResponse(cached);
+          } catch {}
+        }
+
+        const items = await fetchBlockBeatsNewsflash(panel, env);
+        const result = { panel, items, cached_at: Math.floor(Date.now() / 1000) };
+
+        if (env.DATA_CACHE) {
+          try {
+            await env.DATA_CACHE.put(cacheKey, JSON.stringify(result), {
+              expirationTtl: CACHE_TTL.newsflash,
+            });
+          } catch {}
+        }
+
+        return jsonResponse(result);
+      }
+
       if (pathname === "/api/alpha-support") {
         const chain = searchParams.get("chain") || "solana";
         const address = searchParams.get("address") || "";
         const payload = await getAlphaSupportPayload(env, chain, address);
         return jsonResponse(payload, 200);
+      }
+
+      if (pathname === "/api/gmgn/rank") {
+        const chain = normalizeChain(searchParams.get("chain") || "sol");
+        if (!["sol", "bsc", "base"].includes(chain)) {
+          return jsonResponse({ error: "invalid_chain", message: "chain must be one of sol/bsc/base", chain }, 400);
+        }
+        try {
+          const payload = await getCachedJson(`/api/gmgn/rank?chain=${chain}`, CACHE_TTL.gmgn, () => (
+            fetchGmgnJson(env, "/v1/market/rank", { chain })
+          ));
+          return jsonResponse(payload, 200, { "Cache-Control": `public, max-age=${CACHE_TTL.gmgn}` });
+        } catch (error) {
+          return jsonResponse({ error: "gmgn_failed", message: error.message, chain }, 500);
+        }
+      }
+
+      if (pathname === "/api/gmgn/token-info") {
+        const chain = normalizeChain(searchParams.get("chain"));
+        const address = (searchParams.get("address") || "").trim();
+        if (!chain) return jsonResponse({ error: "missing_chain", message: "chain is required" }, 400);
+        if (!address) return jsonResponse({ error: "missing_address", message: "address is required", chain }, 400);
+        try {
+          const payload = await getCachedJson(`/api/gmgn/token-info?chain=${encodeURIComponent(chain)}&address=${encodeURIComponent(address)}`, CACHE_TTL.gmgn, () => (
+            fetchGmgnJson(env, "/v1/token/info", { chain, address })
+          ));
+          return jsonResponse(payload, 200, { "Cache-Control": `public, max-age=${CACHE_TTL.gmgn}` });
+        } catch (error) {
+          return jsonResponse({ error: "gmgn_failed", message: error.message, chain, address }, 500);
+        }
+      }
+
+      if (pathname === "/api/gmgn/token-security") {
+        const chain = normalizeChain(searchParams.get("chain"));
+        const address = (searchParams.get("address") || "").trim();
+        if (!chain) return jsonResponse({ error: "missing_chain", message: "chain is required" }, 400);
+        if (!address) return jsonResponse({ error: "missing_address", message: "address is required", chain }, 400);
+        try {
+          const payload = await getCachedJson(`/api/gmgn/token-security?chain=${encodeURIComponent(chain)}&address=${encodeURIComponent(address)}`, CACHE_TTL.gmgnSecurity, () => (
+            fetchGmgnJson(env, "/v1/token/security", { chain, address })
+          ));
+          return jsonResponse(payload, 200, { "Cache-Control": `public, max-age=${CACHE_TTL.gmgnSecurity}` });
+        } catch (error) {
+          return jsonResponse({ error: "gmgn_failed", message: error.message, chain, address }, 500);
+        }
+      }
+
+      if (pathname === "/api/binance/token-info") {
+        const chain = normalizeChain(searchParams.get("chain"));
+        const address = (searchParams.get("address") || "").trim();
+        const chainId = toBinanceChainId(chain);
+        if (!chain) return jsonResponse({ error: "missing_chain", message: "chain is required" }, 400);
+        if (!chainId) return jsonResponse({ error: "invalid_chain", message: "unsupported chain", chain }, 400);
+        if (!address) return jsonResponse({ error: "missing_address", message: "address is required", chain }, 400);
+        try {
+          const payload = await getCachedJson(`/api/binance/token-info?chain=${encodeURIComponent(chain)}&address=${encodeURIComponent(address)}`, CACHE_TTL.binanceWeb3, () => (
+            fetchBinanceWeb3Json(`/openapi/v1/public/chain/${chainId}/token/dynamic/info/ai?address=${encodeURIComponent(address)}`)
+          ));
+          return jsonResponse(payload, 200, { "Cache-Control": `public, max-age=${CACHE_TTL.binanceWeb3}` });
+        } catch (error) {
+          return jsonResponse({ error: "binance_failed", message: error.message, chain, address }, 500);
+        }
+      }
+
+      if (pathname === "/api/binance/market-rank") {
+        const chain = normalizeChain(searchParams.get("chain"));
+        const type = searchParams.get("type") || "trending";
+        const chainId = toBinanceChainId(chain);
+        if (!chain) return jsonResponse({ error: "missing_chain", message: "chain is required" }, 400);
+        if (!chainId) return jsonResponse({ error: "invalid_chain", message: "unsupported chain", chain }, 400);
+        if (!["trending", "topSearch", "alpha"].includes(type)) {
+          return jsonResponse({ error: "invalid_type", message: "type must be one of trending/topSearch/alpha", chain, type }, 400);
+        }
+        try {
+          const payload = await getCachedJson(`/api/binance/market-rank?chain=${encodeURIComponent(chain)}&type=${encodeURIComponent(type)}`, CACHE_TTL.binanceWeb3, () => (
+            fetchBinanceWeb3Json(`/openapi/v1/public/chain/${chainId}/rank/list?type=${encodeURIComponent(type)}`)
+          ));
+          return jsonResponse(payload, 200, { "Cache-Control": `public, max-age=${CACHE_TTL.binanceWeb3}` });
+        } catch (error) {
+          return jsonResponse({ error: "binance_failed", message: error.message, chain, type }, 500);
+        }
+      }
+
+      if (pathname === "/api/binance/token-audit") {
+        const chain = normalizeChain(searchParams.get("chain"));
+        const address = (searchParams.get("address") || "").trim();
+        const chainId = toBinanceChainId(chain);
+        if (!chain) return jsonResponse({ error: "missing_chain", message: "chain is required" }, 400);
+        if (!chainId) return jsonResponse({ error: "invalid_chain", message: "unsupported chain", chain }, 400);
+        if (!address) return jsonResponse({ error: "missing_address", message: "address is required", chain }, 400);
+        try {
+          const payload = await getCachedJson(`/api/binance/token-audit?chain=${encodeURIComponent(chain)}&address=${encodeURIComponent(address)}`, CACHE_TTL.binanceSecurity, () => (
+            fetchBinanceWeb3Json(`/openapi/v1/public/chain/${chainId}/token/security/ai?address=${encodeURIComponent(address)}`)
+          ));
+          return jsonResponse(payload, 200, { "Cache-Control": `public, max-age=${CACHE_TTL.binanceSecurity}` });
+        } catch (error) {
+          return jsonResponse({ error: "binance_failed", message: error.message, chain, address }, 500);
+        }
       }
 
       if (pathname.startsWith("/api/llama/dex/")) {

@@ -1,26 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { NewsStrip } from "./components/NewsStrip.jsx";
 import {
-  CartesianGrid,
   Label,
   Legend,
   Line,
-  LineChart,
   ReferenceDot,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
 } from "recharts";
 import { WORKER } from "./config.js";
-
-const C = {
-  bg: "#F2F2F7", card: "#fff", label: "#000", labelSec: "#3C3C43",
-  labelTer: "rgba(60,60,67,0.6)", labelQ: "rgba(60,60,67,0.4)",
-  sep: "rgba(60,60,67,0.16)", fill: "rgba(120,120,128,0.08)",
-  fill2: "rgba(120,120,128,0.12)",
-  blue: "#007AFF", green: "#34C759", orange: "#FF9500",
-  red: "#FF3B30", yellow: "#FFCC00", purple: "#AF52DE", teal: "#30B0C7",
-};
+import { LOChart } from "./components/shared/LOChart";
+import SkeletonLine from "./components/shared/SkeletonLine";
+import ChartSkeleton from "./components/shared/ChartSkeleton";
+import DataStateCard from "./components/shared/DataStateCard";
+import PeriodButtons from "./components/shared/PeriodButtons";
+import ChartStateBlock from "./components/shared/ChartStateBlock";
+import CustomTooltip from "./components/shared/CustomTooltip";
+import TradingViewWidget from "./components/shared/TradingViewWidget";
+import { fmtNum, fmtTrillions, toNum } from "./lib/utils";
 
 const FRED_ENDPOINTS = {
   fed: `${WORKER}/api/fred/WALCL`,
@@ -34,55 +29,12 @@ const GNL_PERIOD_DAYS = { "1W": 7, "1M": 30, "3M": 90, "6M": 180, "1Y": 365, "2Y
 const CHART_HEIGHT = 220;
 const COMPONENT_HEIGHT = 200;
 
-const pageBodyStyle = {
-  background: "#F2F2F7",
-  minHeight: "100vh",
-  fontFamily: "-apple-system,'Helvetica Neue',sans-serif",
-};
-
-const contentWrapStyle = {
-  padding: "16px 0 48px",
-};
-
-const cardStyle = {
-  background: "#fff",
-  borderRadius: 14,
-  boxShadow: "0 1px 3px rgba(0,0,0,0.07)",
-  margin: "0 16px 12px",
-  padding: "16px",
-};
-
-const numFontStyle = {
-  fontFamily: "var(--lo-num-font)",
-  fontVariantNumeric: "tabular-nums",
-};
-
-function toNumber(value) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : null;
-}
-
-function fmtNum(n) {
-  if (n == null || Number.isNaN(Number(n))) return "—";
-  const value = Number(n);
-  if (Math.abs(value) >= 1e12) return `${(value / 1e12).toFixed(2)}T`;
-  if (Math.abs(value) >= 1e9) return `${(value / 1e9).toFixed(1)}B`;
-  if (Math.abs(value) >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
-  if (Math.abs(value) >= 1e3) return `${(value / 1e3).toFixed(0)}K`;
-  return value.toFixed(value !== 0 && Math.abs(value) < 10 ? 2 : 0);
-}
-
-function fmtTrillions(n, digits = 3) {
-  if (n == null || Number.isNaN(Number(n))) return "—";
-  return `${Number(n).toFixed(digits)}T`;
-}
-
 function getGnlAccentColor(value) {
-  const numeric = toNumber(value);
-  if (numeric == null) return C.label;
-  if (numeric > 0.1) return "var(--lo-green, #34C759)";
-  if (numeric < -0.1) return "var(--lo-red, #FF3B30)";
-  return "var(--lo-yellow, #FFCC00)";
+  const numeric = toNum(value);
+  if (numeric == null) return "var(--lo-text-primary)";
+  if (numeric > 0.1) return "var(--lo-signal-bull)";
+  if (numeric < -0.1) return "var(--lo-signal-bear)";
+  return "var(--lo-signal-neutral)";
 }
 
 function formatDateLabel(value) {
@@ -184,7 +136,7 @@ function parseFredObservations(payload, divisor) {
   return (payload?.observations || [])
     .filter((entry) => entry?.value !== ".")
     .map((entry) => {
-      const value = toNumber(entry?.value);
+      const value = toNum(entry?.value);
       const timestamp = new Date(`${entry?.date}T00:00:00Z`).getTime();
       if (value == null || !Number.isFinite(timestamp) || !entry?.date) return null;
       return {
@@ -237,40 +189,15 @@ function getFallbackFredData() {
   };
 }
 
-function SkeletonLine({ width = "100%", height = 12, radius = 999 }) {
-  return (
-    <div
-      style={{
-        width,
-        height,
-        borderRadius: radius,
-        background: "linear-gradient(90deg, rgba(120,120,128,0.08), rgba(120,120,128,0.18), rgba(120,120,128,0.08))",
-      }}
-    />
-  );
-}
-
-function ChartSkeleton({ height }) {
-  return (
-    <div
-      style={{
-        height,
-        borderRadius: 16,
-        background: "linear-gradient(90deg, rgba(120,120,128,0.08), rgba(120,120,128,0.18), rgba(120,120,128,0.08))",
-      }}
-    />
-  );
-}
-
 function getChartLabelFill(lineColor) {
-  if (typeof document !== "undefined" && document.documentElement.dataset.theme === "dark") {
+  if (typeof document !== "undefined" && document.documentElement.getAttribute("data-theme") === "dark") {
     return "rgba(255,255,255,0.50)";
   }
   return lineColor || "rgba(15,23,42,0.55)";
 }
 
 function formatTrillionsCompact(value) {
-  const numeric = toNumber(value);
+  const numeric = toNum(value);
   if (numeric == null) return "—";
   return `${numeric.toFixed(2)}T`;
 }
@@ -295,201 +222,6 @@ function renderLineEndLabel(data, lineName, lineColor, formatter = formatTrillio
       </text>
     );
   };
-}
-
-function PeriodButtons({ options, active, onChange }) {
-  return (
-    <div style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-      {options.map((option) => {
-        const activeFlag = option === active;
-        return (
-          <button
-            key={option}
-            type="button"
-            onClick={() => onChange(option)}
-            style={{
-              border: "none",
-              borderRadius: 8,
-              background: activeFlag ? C.blue : "rgba(15,23,42,0.05)",
-              color: activeFlag ? "#fff" : "#6B7280",
-              fontSize: 11,
-              fontWeight: 700,
-              padding: "6px 10px",
-              cursor: "pointer",
-              transition: "all 0.15s ease",
-            }}
-          >
-            {option}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function ChartStateBlock({ loading, error, onRetry, height, children }) {
-  if (loading) return <ChartSkeleton height={height} />;
-  if (error) {
-    return (
-      <div style={{ minHeight: height, borderRadius: 16, background: "rgba(120,120,128,0.04)", display: "grid", placeItems: "center", padding: 24 }}>
-        <div style={{ display: "grid", gap: 10, justifyItems: "center", textAlign: "center" }}>
-          <div style={{ fontSize: 13, color: C.labelTer }}>数据暂时不可用</div>
-          {onRetry ? (
-            <button
-              type="button"
-              onClick={onRetry}
-              style={{
-                border: "none",
-                borderRadius: 10,
-                background: "rgba(15,23,42,0.05)",
-                color: "#6B7280",
-                fontSize: 12,
-                fontWeight: 700,
-                padding: "8px 12px",
-                cursor: "pointer",
-              }}
-            >
-              重试
-            </button>
-          ) : null}
-        </div>
-      </div>
-    );
-  }
-  return children;
-}
-
-function DataStateCard({ title, subtitle, loading, error, onRetry, action, children }) {
-  return (
-    <section style={cardStyle}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
-        <div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", letterSpacing: -0.2 }}>{title}</div>
-          {subtitle ? <div style={{ fontSize: 12, color: C.labelTer, lineHeight: 1.55, marginTop: 4 }}>{subtitle}</div> : null}
-        </div>
-        {action || null}
-      </div>
-
-      {loading ? (
-        <div style={{ display: "grid", gap: 12 }}>
-          <SkeletonLine width="34%" height={14} />
-          <SkeletonLine width="26%" height={40} radius={12} />
-          <ChartSkeleton height={200} />
-        </div>
-      ) : error ? (
-        <div style={{ display: "grid", gap: 12 }}>
-          <div style={{ fontSize: 13, color: C.red }}>{error}</div>
-          {onRetry ? (
-            <button
-              type="button"
-              onClick={onRetry}
-              style={{
-                width: "fit-content",
-                border: "none",
-                borderRadius: 10,
-                background: "rgba(255,59,48,0.08)",
-                color: C.red,
-                fontSize: 12,
-                fontWeight: 700,
-                padding: "8px 12px",
-                cursor: "pointer",
-              }}
-            >
-              重试
-            </button>
-          ) : null}
-        </div>
-      ) : children}
-    </section>
-  );
-}
-
-function CustomTooltip({ active, label, payload, formatters = {} }) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div style={{ background: "#fff", border: "1px solid rgba(60,60,67,0.12)", borderRadius: 12, boxShadow: "0 6px 18px rgba(15,23,42,0.08)", padding: "10px 12px" }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: "#111827", marginBottom: 6 }}>{label}</div>
-      <div style={{ display: "grid", gap: 4 }}>
-        {payload.map((item) => (
-          <div key={`${item.dataKey}-${item.name}`} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 999, background: item.color }} />
-            <span style={{ color: "#111827" }}>
-              {item.name}: {(formatters[item.dataKey] || ((v) => v))(item.value)}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function TradingViewWidget({ symbol, interval, height = "100%" }) {
-  const chartRef = useRef(null);
-  const [status, setStatus] = useState("loading");
-
-  useEffect(() => {
-    if (!chartRef.current) return undefined;
-
-    const host = chartRef.current;
-    host.innerHTML = "";
-    setStatus("loading");
-
-    const container = document.createElement("div");
-    container.className = "tradingview-widget-container__widget";
-    container.style.height = "100%";
-    container.style.width = "100%";
-
-    const observer = new MutationObserver(() => {
-      if (host.querySelector("iframe")) {
-        setStatus("ready");
-      }
-    });
-
-    observer.observe(host, { childList: true, subtree: true });
-
-    const script = document.createElement("script");
-    script.type = "text/javascript";
-    script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
-    script.async = true;
-    script.onerror = () => setStatus("error");
-    script.innerHTML = JSON.stringify({
-      autosize: true,
-      symbol,
-      interval,
-      timezone: "Asia/Shanghai",
-      theme: "light",
-      style: "1",
-      locale: "zh_CN",
-      hide_side_toolbar: false,
-      allow_symbol_change: false,
-      save_image: false,
-      calendar: false,
-      support_host: "https://www.tradingview.com",
-    });
-
-    host.appendChild(container);
-    host.appendChild(script);
-
-    return () => {
-      observer.disconnect();
-      host.innerHTML = "";
-    };
-  }, [interval, symbol]);
-
-  return (
-    <div className="lo-btc-detail-chart-shell" style={{ height }}>
-      <div
-        ref={chartRef}
-        className="tradingview-widget-container lo-btc-detail-widget"
-        style={{ height: "100%", width: "100%" }}
-      />
-      {status !== "ready" && (
-        <div className={`lo-btc-detail-chart-state${status === "error" ? " is-error" : ""}`}>
-          {status === "error" ? "图表加载失败，请稍后重试" : "图表加载中..."}
-        </div>
-      )}
-    </div>
-  );
 }
 
 export default function L1DetailPage({ onBack }) {
@@ -566,7 +298,7 @@ export default function L1DetailPage({ onBack }) {
   const componentDomain = useMemo(() => getPaddedDomain(gnlChartData, ["fed", "tga", "rrp"]), [gnlChartData]);
   const gnlRangeAnchor = useMemo(() => {
     const stats = getWindowRangeStats(summaryState.data?.history || [], "gnl", 365);
-    const currentGnl = toNumber(current?.gnl);
+    const currentGnl = toNum(current?.gnl);
     if (!stats || currentGnl == null) return null;
     const percentile = stats.range > 0
       ? Math.max(0, Math.min(100, ((currentGnl - stats.min) / stats.range) * 100))
@@ -581,20 +313,9 @@ export default function L1DetailPage({ onBack }) {
   const shouldAnnotateGnl = gnlChartData.length >= 4;
 
   return (
-    <div className="lo-btc-detail-page" style={{ ...pageBodyStyle, borderTop: "2px solid rgba(77,166,255,0.3)" }}>
-      <header className="lo-btc-detail-topbar">
-        <div className="lo-btc-detail-topbar-inner">
-          <button type="button" className="lo-btc-detail-back" onClick={onBack}>
-            ← 返回
-          </button>
-          <div className="lo-btc-detail-heading">
-            <h1 className="lo-btc-detail-title">L1 · 全球净流动性</h1>
-            <p className="lo-btc-detail-subtitle">GNL 走势 · DXY 美元指数 · 联储资产负债表</p>
-          </div>
-        </div>
-      </header>
-
-      <main style={contentWrapStyle}>
+    <div className="lo-btc-detail-page lo-detail-page" style={{ borderTop: "2px solid color-mix(in srgb, var(--lo-brand) 30%, transparent)" }}>
+      <main className="lo-detail-content">
+        <NewsStrip panel="l1" />
         <DataStateCard
           title="GNL 当前数值"
           subtitle="数据来源：FRED"
@@ -602,46 +323,33 @@ export default function L1DetailPage({ onBack }) {
           error={summaryState.error}
           onRetry={loadFredData}
         >
-          <div style={{ display: "grid", gap: 18 }}>
-            <div style={{
-              ...numFontStyle,
-              fontSize: 42,
-              fontWeight: 760,
-              letterSpacing: -1.4,
-              color: getGnlAccentColor(current?.gnl),
-            }}>
+          <div className="lo-d-grid" style={{ gap: 18 }}>
+            <div className="lo-metric lo-metric--xl" style={{ color: getGnlAccentColor(current?.gnl) }}>
               {fmtTrillions(current?.gnl)}
             </div>
             {gnlRangeAnchor ? (
-              <div style={{ fontSize: "var(--lo-text-meta)", color: "var(--lo-text-muted, rgba(60,60,67,0.4))", lineHeight: 1.6 }}>
+              <div className="lo-text-meta-muted" style={{ lineHeight: 1.6 }}>
                 近 52 周区间 [{fmtTrillions(gnlRangeAnchor.min)} — {fmtTrillions(gnlRangeAnchor.max)}] · 当前位于区间 {gnlRangeAnchor.percentile.toFixed(0)}%
               </div>
             ) : null}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}>
+            <div className="lo-d-grid--3col">
               {[
-                { key: "fed", label: "Fed 资产负债表", value: current?.fed?.valueT, date: current?.fed?.date, color: C.blue },
-                { key: "tga", label: "TGA", value: current?.tga?.valueT, date: current?.tga?.date, color: C.red },
-                { key: "rrp", label: "RRP", value: current?.rrp?.valueT, date: current?.rrp?.date, color: C.orange },
+                { key: "fed", label: "Fed 资产负债表", value: current?.fed?.valueT, date: current?.fed?.date, color: "var(--lo-brand)" },
+                { key: "tga", label: "TGA", value: current?.tga?.valueT, date: current?.tga?.date, color: "var(--lo-signal-bear)" },
+                { key: "rrp", label: "RRP", value: current?.rrp?.valueT, date: current?.rrp?.date, color: "var(--lo-signal-neutral)" },
               ].map((item) => (
-                <div key={item.key} style={{ borderRadius: 14, padding: 14, background: "rgba(120,120,128,0.05)" }}>
-                  <div style={{ fontSize: 12, color: C.labelTer, marginBottom: 8 }}>{item.label}</div>
-                  <div style={{
-                    ...numFontStyle,
-                    fontSize: 24,
-                    fontWeight: 760,
-                    letterSpacing: -0.8,
-                    color: item.color,
-                    marginBottom: 6,
-                  }}>
+                <div key={item.key} className="lo-inset-panel">
+                  <div className="lo-inset-panel__label">{item.label}</div>
+                  <div className="lo-metric lo-metric--md" style={{ color: item.color, marginBottom: 6 }}>
                     {fmtTrillions(item.value)}
                   </div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: C.labelSec }}>
+                  <div className="lo-inset-panel__date">
                     {formatDateLabel(item.date)}
                   </div>
                 </div>
               ))}
             </div>
-            <div style={{ fontSize: 12, color: C.labelTer, lineHeight: 1.55 }}>
+            <div className="lo-text-footnote">
               GNL 领先 BTC 约 13 周，每周四更新
             </div>
           </div>
@@ -656,78 +364,61 @@ export default function L1DetailPage({ onBack }) {
           action={<PeriodButtons options={Object.keys(GNL_PERIOD_DAYS)} active={historyPeriod} onChange={setHistoryPeriod} />}
         >
           <ChartStateBlock loading={false} error={gnlChartData.length ? "" : "数据暂时不可用"} onRetry={loadFredData} height={CHART_HEIGHT}>
-            <div style={{ height: CHART_HEIGHT, borderRadius: 16, background: "rgba(120,120,128,0.04)", padding: "10px 6px 0", overflow: "visible" }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={gnlChartData} margin={{ top: 8, right: 60, left: -12, bottom: 12 }}>
-                  <CartesianGrid stroke="rgba(60,60,67,0.08)" vertical={false} />
-                  <XAxis
-                    dataKey="axisLabel"
-                    tickLine={false}
-                    axisLine={false}
-                    interval={getXAxisInterval(historyPeriod)}
-                    tick={{ fontSize: 11, fill: C.labelTer }}
+            <LOChart
+              data={gnlChartData}
+              height={CHART_HEIGHT}
+              xDataKey="axisLabel"
+              xInterval={getXAxisInterval(historyPeriod)}
+              yDomain={gnlDomain}
+              yTickFormatter={(value) => `${Number(value).toFixed(1)}T`}
+              yWidth={48}
+              tooltipContent={<CustomTooltip formatters={{ gnl: (value) => fmtTrillions(value) }} />}
+              tooltipLabelFormatter={(_, payload) => formatDateLabel(payload?.[0]?.payload?.date)}
+              margin={{ top: 8, right: 60, left: -12, bottom: 12 }}
+            >
+              <Line
+                type="monotone"
+                dataKey="gnl"
+                name="GNL"
+                stroke={"var(--lo-brand)"}
+                strokeWidth={2.5}
+                dot={false}
+                activeDot={{ r: 4 }}
+                label={renderLineEndLabel(gnlChartData, "GNL", "var(--lo-brand)", formatTrillionsCompact)}
+              />
+              {shouldAnnotateGnl && gnlExtrema.maxPoint ? (
+                <ReferenceDot
+                  x={gnlExtrema.maxPoint.axisLabel}
+                  y={gnlExtrema.maxPoint.gnl}
+                  r={4}
+                  fill={"var(--lo-brand)"}
+                  stroke="none"
+                >
+                  <Label
+                    value={`${fmtTrillions(gnlExtrema.maxPoint.gnl)} · ${formatMonthDay(gnlExtrema.maxPoint.date)}`}
+                    position="top"
+                    offset={10}
+                    style={{ fontSize: 10, fill: "var(--lo-text-muted)", fontFamily: "var(--lo-num-font)" }}
                   />
-                  <YAxis
-                    domain={gnlDomain}
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ ...numFontStyle, fontSize: 11, fill: C.labelTer }}
-                    tickFormatter={(value) => `${Number(value).toFixed(1)}T`}
-                    width={48}
+                </ReferenceDot>
+              ) : null}
+              {shouldAnnotateGnl && gnlExtrema.minPoint && gnlExtrema.minPoint !== gnlExtrema.maxPoint ? (
+                <ReferenceDot
+                  x={gnlExtrema.minPoint.axisLabel}
+                  y={gnlExtrema.minPoint.gnl}
+                  r={4}
+                  fill={"var(--lo-signal-bear)"}
+                  stroke="none"
+                >
+                  <Label
+                    value={`${fmtTrillions(gnlExtrema.minPoint.gnl)} · ${formatMonthDay(gnlExtrema.minPoint.date)}`}
+                    position="bottom"
+                    offset={10}
+                    style={{ fontSize: 10, fill: "var(--lo-text-muted)", fontFamily: "var(--lo-num-font)" }}
                   />
-                  <Tooltip
-                    content={(
-                      <CustomTooltip
-                        formatters={{ gnl: (value) => fmtTrillions(value) }}
-                      />
-                    )}
-                    labelFormatter={(_, payload) => formatDateLabel(payload?.[0]?.payload?.date)}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="gnl"
-                    name="GNL"
-                    stroke={C.blue}
-                    strokeWidth={2.5}
-                    dot={false}
-                    activeDot={{ r: 4 }}
-                    label={renderLineEndLabel(gnlChartData, "GNL", C.blue, formatTrillionsCompact)}
-                  />
-                  {shouldAnnotateGnl && gnlExtrema.maxPoint ? (
-                    <ReferenceDot
-                      x={gnlExtrema.maxPoint.axisLabel}
-                      y={gnlExtrema.maxPoint.gnl}
-                      r={4}
-                      fill={"var(--lo-brand, #007AFF)"}
-                      stroke="none"
-                    >
-                      <Label
-                        value={`${fmtTrillions(gnlExtrema.maxPoint.gnl)} · ${formatMonthDay(gnlExtrema.maxPoint.date)}`}
-                        position="top"
-                        offset={10}
-                        style={{ fontSize: 10, fill: "var(--lo-text-muted, rgba(60,60,67,0.4))", fontFamily: "var(--lo-num-font)" }}
-                      />
-                    </ReferenceDot>
-                  ) : null}
-                  {shouldAnnotateGnl && gnlExtrema.minPoint && gnlExtrema.minPoint !== gnlExtrema.maxPoint ? (
-                    <ReferenceDot
-                      x={gnlExtrema.minPoint.axisLabel}
-                      y={gnlExtrema.minPoint.gnl}
-                      r={4}
-                      fill={"var(--lo-red, #FF3B30)"}
-                      stroke="none"
-                    >
-                      <Label
-                        value={`${fmtTrillions(gnlExtrema.minPoint.gnl)} · ${formatMonthDay(gnlExtrema.minPoint.date)}`}
-                        position="bottom"
-                        offset={10}
-                        style={{ fontSize: 10, fill: "var(--lo-text-muted, rgba(60,60,67,0.4))", fontFamily: "var(--lo-num-font)" }}
-                      />
-                    </ReferenceDot>
-                  ) : null}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
+                </ReferenceDot>
+              ) : null}
+            </LOChart>
           </ChartStateBlock>
         </DataStateCard>
 
@@ -738,12 +429,12 @@ export default function L1DetailPage({ onBack }) {
           error={summaryState.error}
           onRetry={loadFredData}
           action={(
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <div className="lo-d-flex-end-wrap">
               <PeriodButtons options={Object.keys(GNL_PERIOD_DAYS)} active={historyPeriod} onChange={setHistoryPeriod} />
               <button
                 type="button"
                 onClick={() => setShowComponents((value) => !value)}
-                style={{ border: "none", background: "none", color: "#6B7280", fontSize: 12, fontWeight: 700, cursor: "pointer", padding: "4px 0" }}
+                className="lo-toggle-btn"
               >
                 {showComponents ? "收起" : "展开"}
               </button>
@@ -752,55 +443,42 @@ export default function L1DetailPage({ onBack }) {
         >
           {showComponents ? (
             <ChartStateBlock loading={false} error={gnlChartData.length ? "" : "数据暂时不可用"} onRetry={loadFredData} height={COMPONENT_HEIGHT}>
-              <div style={{ height: COMPONENT_HEIGHT, borderRadius: 16, background: "rgba(120,120,128,0.04)", padding: "10px 6px 0", overflow: "visible" }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={gnlChartData} margin={{ top: 8, right: 60, left: -12, bottom: 12 }}>
-                    <CartesianGrid stroke="rgba(60,60,67,0.08)" vertical={false} />
-                    <XAxis
-                      dataKey="axisLabel"
-                      tickLine={false}
-                      axisLine={false}
-                      interval={getXAxisInterval(historyPeriod)}
-                      tick={{ fontSize: 11, fill: C.labelTer }}
-                    />
-                    <YAxis
-                      domain={componentDomain}
-                      tickLine={false}
-                      axisLine={false}
-                      tick={{ ...numFontStyle, fontSize: 11, fill: C.labelTer }}
-                      tickFormatter={(value) => `${Number(value).toFixed(1)}T`}
-                      width={48}
-                    />
-                    <Tooltip
-                      content={(
-                        <CustomTooltip
-                          formatters={{
-                            fed: (value) => fmtTrillions(value),
-                            tga: (value) => fmtTrillions(value),
-                            rrp: (value) => fmtTrillions(value),
-                          }}
-                        />
-                      )}
-                      labelFormatter={(_, payload) => formatDateLabel(payload?.[0]?.payload?.date)}
-                    />
-                    <Legend wrapperStyle={{ paddingTop: 10, fontSize: 11 }} />
-                    <Line type="monotone" dataKey="fed" name="Fed" stroke={C.blue} strokeWidth={2.2} dot={false} label={renderLineEndLabel(gnlChartData, "Fed", C.blue, formatTrillionsCompact)} />
-                    <Line type="monotone" dataKey="tga" name="TGA" stroke={C.red} strokeWidth={2.2} dot={false} label={renderLineEndLabel(gnlChartData, "TGA", C.red, formatTrillionsCompact)} />
-                    <Line type="monotone" dataKey="rrp" name="RRP" stroke={C.orange} strokeWidth={2.2} dot={false} label={renderLineEndLabel(gnlChartData, "RRP", C.orange, formatTrillionsCompact)} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
+              <LOChart
+                data={gnlChartData}
+                height={COMPONENT_HEIGHT}
+                xDataKey="axisLabel"
+                xInterval={getXAxisInterval(historyPeriod)}
+                yDomain={componentDomain}
+                yTickFormatter={(value) => `${Number(value).toFixed(1)}T`}
+                yWidth={48}
+                tooltipContent={(
+                  <CustomTooltip
+                    formatters={{
+                      fed: (value) => fmtTrillions(value),
+                      tga: (value) => fmtTrillions(value),
+                      rrp: (value) => fmtTrillions(value),
+                    }}
+                  />
+                )}
+                tooltipLabelFormatter={(_, payload) => formatDateLabel(payload?.[0]?.payload?.date)}
+                margin={{ top: 8, right: 60, left: -12, bottom: 12 }}
+              >
+                <Legend wrapperStyle={{ paddingTop: 10, fontSize: 11 }} />
+                <Line type="monotone" dataKey="fed" name="Fed" stroke={"var(--lo-brand)"} strokeWidth={2.2} dot={false} label={renderLineEndLabel(gnlChartData, "Fed", "var(--lo-brand)", formatTrillionsCompact)} />
+                <Line type="monotone" dataKey="tga" name="TGA" stroke={"var(--lo-signal-bear)"} strokeWidth={2.2} dot={false} label={renderLineEndLabel(gnlChartData, "TGA", "var(--lo-signal-bear)", formatTrillionsCompact)} />
+                <Line type="monotone" dataKey="rrp" name="RRP" stroke={"var(--lo-signal-neutral)"} strokeWidth={2.2} dot={false} label={renderLineEndLabel(gnlChartData, "RRP", "var(--lo-signal-neutral)", formatTrillionsCompact)} />
+              </LOChart>
             </ChartStateBlock>
           ) : (
-            <div style={{ fontSize: 12, color: C.labelTer, padding: "6px 0 2px" }}>分量图已收起，按需展开查看联储扩表与资金回笼结构。</div>
+            <div className="lo-text-footnote" style={{ padding: "6px 0 2px" }}>分量图已收起，按需展开查看联储扩表与资金回笼结构。</div>
           )}
         </DataStateCard>
 
-        <section style={cardStyle}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
+        <section className="lo-detail-card">
+          <div className="lo-manual-card__header">
             <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", letterSpacing: -0.2 }}>DXY 美元指数（周线）</div>
-              <div style={{ fontSize: 12, color: C.labelTer, lineHeight: 1.55, marginTop: 4 }}>
+              <div className="lo-dsc__title">DXY 美元指数（周线）</div>
+              <div className="lo-dsc__subtitle">
                 DXY 下降通常对加密有利，上升压制风险资产
               </div>
             </div>
@@ -808,7 +486,7 @@ export default function L1DetailPage({ onBack }) {
           <TradingViewWidget symbol="INDEX:DXY" interval="W" height={350} />
         </section>
 
-        <div style={{ margin: "14px 16px 0", fontSize: 12, color: C.labelTer }}>
+        <div className="lo-text-footnote" style={{ margin: "14px 16px 0" }}>
           数据来源：FRED (Federal Reserve) · TradingView · 每周四更新
         </div>
       </main>

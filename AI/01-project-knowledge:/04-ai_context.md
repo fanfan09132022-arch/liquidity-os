@@ -2,161 +2,154 @@
 
 ## 一、这份文件的用途
 
-这份文件是给“下一位接手项目的 AI”看的现实压缩包。
+这份文件给下一位接手项目的 AI 提供“当前现实压缩版”。
 
-它的目标不是完整介绍项目历史，  
-而是帮助新的 AI 快速知道：
+它只回答几件事：
 
-- 当前真实工作线是什么
-- 当前真实 runtime 是什么
-- 哪些旧结构只是历史参考
-- 当前阶段应该做什么
-- 当前阶段不要做什么
+- 当前真实运行时是什么
+- 当前项目已经推进到什么状态
+- 哪些旧叙事已经过时
+- 下一步默认该做什么、不该做什么
 
-这份文件应优先服务于：
-**快速接手、少走弯路、避免误判运行时。**
+如果它与代码冲突，优先相信当前代码与 `PROJECT_STATUS.md`。
 
 ---
 
 ## 二、当前真实项目状态
 
-当前最值得信任的本地产品状态位于：
+截至 `2026-03-23`，当前最值得信任的本地现实是：
 
-- 分支：`codex/full-preview`
+- 当前分支：`main`
+- 当前真实运行时：根目录 Vite + React 18 app
+- 当前路由入口：`src/main.jsx`
+- 当前主工作台核心：`src/App.jsx`
+- 当前主样式入口：`src/styles.css`
+- 当前共享状态层：`src/context/AppStateProvider.jsx`
+- 当前共享 Worker 数据轮询：`src/lib/useWorkerData.js`
+- 当前 Worker 默认地址：`src/config.js`
 
-当前真实运行时是根目录 app，而不是旧目录：
+当前真实可访问路由：
 
-- `src/App.jsx`
-- `src/styles.css`
-- `src/main.jsx`
+- `/`
+- `/macro`
+- `/liquidity`
+- `/stablecoins`
+- `/meme`
+- `/workbench`
+- `/fg`
 
-Worker 仍然存在，并且仍影响 homepage macro 数据路径：
-
-- `dashboard/worker/worker.js`
+`dashboard/worker/worker.js` 仍然存在且仍有意义，但它不是当前前端运行时入口。
 
 ---
 
-## 三、当前阶段判断
+## 三、当前结构现实
 
-当前 integrated preview 已经足够强，可以审查、可以 polish、可以做小范围 correctness 修正。  
-但它还不是最终 production system。
+当前项目不是“全新模块化完成态”，而是一个过渡中的稳定基线：
 
-当前阶段的正确理解应是：
+- `Dashboard` 与 `L0-L3` 已拆成独立 page
+- `L4 /workbench` 仍主要复用 `src/App.jsx`
+- detail pages 仍是独立文件，但已接入新导航与共享组件
+- 外部数据主要走 Cloudflare Worker
+- 个别浏览器端数据仍直接从第三方接口拉取
 
-- 已经进入独立站真实开发阶段
+因此，接手时应接受“新路由壳 + 老核心工作台并存”的现实，不要误判为需要立刻统一重写。
+
+---
+
+## 四、当前阶段判断
+
+当前阶段的正确理解是：
+
+- 已完成一轮较大规模前端整合
+- 已进入稳定化、校正和补验证阶段
 - 当前不是重新搭骨架
-- 当前不是扩数据野心
-- 当前重点是 polish / stabilize / reviewability
+- 当前不是大规模扩数据野心
+- 当前重点是 correctness / polish / reviewability / browser QA
+
+可以把现在理解成：
+
+**一个已经能跑、能 build、但仍存在浏览器级验证缺口的交易工作台基线。**
 
 ---
 
-## 四、当前不是最终解决的问题
+## 五、当前已完成的高价值成果
 
-以下事项应被视为“有意未完全解决”，而不是“忘了做”：
+当前代码与状态文档已经明确完成：
 
-- 某些历史 chart path 仍然因为 upstream 可靠性问题而保持简化
-- 若干交互细节仍需要小型 polish，而不是大重构
-- Top 50 icon quality 仍视为 upstream-data 质量问题，不是当前前端主优先级
-- router migration 仍不是优先级
-- 一些旧 docs / repo 结构仅具历史参考价值
+- React Router v6 基础接入
+- Dashboard 与 L0-L4 页面骨架
+- `TabBar`、`NewsStrip`、`useWorkerData` 等共享能力
+- 多个 Worker 字段修复与端点补充
+- L4 Workbench 多轮增强
+- 5 个 DetailPage 接入共享快讯条
+- 部分 `AppStateProvider` 迁移，已到 Phase A / B
 
----
+当前基线还确认过：
 
-## 五、下一阶段不该做什么
-
-默认不要：
-
-- 把下阶段理解成“继续扩数据源”
-- 把 router migration 当成下一步主任务
-- 因为局部粗糙就重开架构
-- 因为历史目录还在就误以为那是当前 runtime
-- 因为 GitHub 不同步就否定本地 `codex/full-preview`
+- `npm run build` 可通过
+- `/stablecoins` 曾出现 `CHART_HEIGHT is not defined` 白屏，已在当前基线修复
 
 ---
 
-## 六、下一阶段应该做什么
+## 六、当前不是重点的问题
+
+以下事项应视为“当前没有优先推进”，而不是“忘记做”：
+
+- AppStateProvider Phase C 全量迁移
+- 大规模路由重构
+- Worker 协议重写
+- 登录 / 多用户 / 后台系统
+- 无明确收益的新数据源扩张
+- 为了整洁感而拆掉 `src/App.jsx` 做大手术
+
+---
+
+## 七、下一阶段默认该做什么
 
 默认优先级应是：
 
 1. 小范围 correctness fixes
-2. reviewability / GitHub sync hygiene
-3. 剩余 interaction rough edges
-4. 保护已经工作的 data entry points
-5. 避免不必要的 scope 增长
+2. 页面级白屏 / runtime error 清理
+3. 浏览器级回归验证
+4. reviewability 与交接卫生
+5. 在不破坏现有结构的前提下做局部 polish
 
 ---
 
-## 七、给下一位 AI 的必读文件
+## 八、下一阶段默认不该做什么
 
-如果你是新接手的 AI，必须优先读：
+默认不要：
 
-- `src/App.jsx`
-  - 主页面结构
-  - detail-page 入口 wiring
-  - floating dock
-  - LayerGateBar
-  - F&G gauge
-- `src/styles.css`
-  - 根 app 的主视觉系统
-  - 全局 Recharts 样式
-- `src/BTCDetailPage.jsx`
-- `src/L1DetailPage.jsx`
-- `src/L2DetailPage.jsx`
-- `src/L3DetailPage.jsx`
-- `src/FGDetailPage.jsx`
-- `src/config.js`
-- `dashboard/worker/worker.js`
+- 把项目重新理解成旧分支工程
+- 把 `dashboard/web` 当成主运行时
+- 因为 `src/App.jsx` 很大就直接发起大拆分
+- 把局部修复升级成架构重构
+- 在没有明确任务时继续推进高风险状态迁移
+- 把未验证内容写成“已稳定”
 
 ---
 
-## 八、仅历史参考的内容
+## 九、接手时的优先阅读顺序
 
-以下内容可以参考，但不能默认当成当前 source of truth：
+如果你是新接手的 AI，建议优先读：
 
-- `dashboard/web/...`
-  - 旧结构
-  - 适合做 branch archaeology，不适合判断当前 root-app execution
-- `README.md`
-  - 可能无法完整反映当前 root-app 现实
-- `docs/*`
-  - 适合补背景
-  - 不一定等于当前实现真相
+1. `PROJECT_STATUS.md`
+2. `DESIGN.md`
+3. `RESULTS_INDEX.md`
+4. `src/main.jsx`
+5. `src/App.jsx`
+6. `src/pages/Dashboard.jsx`
+7. `src/context/AppStateProvider.jsx`
+8. `src/lib/api.js`
+9. `src/lib/useWorkerData.js`
+10. 与当前任务直接相关的 detail/page 文件
 
----
-
-## 九、接手时的默认判断规则
-
-如果你想最快看到当前最完整产品状态：
-
-- 优先检查 `codex/full-preview`
-
-如果 GitHub 与本地不一致：
-
-- 先信本地 `codex/full-preview`
-- 再考虑同步 GitHub
-
-如果你只想看历史上的 isolated detail-page package：
-
-- 再去看 `codex/data-detail-pages`
+不要先默认去做历史考古。
 
 ---
 
-## 十、当前护栏
+## 十、一句话交接结论
 
-接手后默认遵守：
+这个项目现在最需要的不是“重做系统”，而是：
 
-- 不要把 `codex/sync-20260314` 重新作为工作分支
-- 不要把 `dashboard/web` 误判为主运行时
-- 不要随意扩数据源 scope
-- 不要在 UI restructuring 中破坏 `src/App.jsx` 的 detail-page entry wiring
-- Worker 改动默认保持最小，除非 homepage macro integrity 直接受损
-- 不要重新引入旧的 static action-dock 布局，当前 runtime 使用 floating dock
-
----
-
-## 十一、一句话交接结论
-
-这个项目现在最需要的不是“再造一个系统”，  
-而是：
-
-**在已经成型的独立站结构上，做更稳、更小、更可审查的推进。**
+**在已经跑起来的 LiquidityOS 基线上，小步修正、补验证、稳定推进。**

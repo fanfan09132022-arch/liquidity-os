@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
+import { NewsStrip } from "./components/NewsStrip.jsx";
+import TradingViewWidget from "./components/shared/TradingViewWidget";
 
 const DETAIL_CHARTS = [
   {
@@ -31,75 +33,6 @@ const DETAIL_CHARTS = [
     height: 300,
   },
 ];
-
-function TradingViewWidget({ symbol, interval, height = "100%" }) {
-  const chartRef = useRef(null);
-  const [status, setStatus] = useState("loading");
-
-  useEffect(() => {
-    if (!chartRef.current) return undefined;
-
-    const host = chartRef.current;
-    host.innerHTML = "";
-    setStatus("loading");
-
-    const container = document.createElement("div");
-    container.className = "tradingview-widget-container__widget";
-    container.style.height = "100%";
-    container.style.width = "100%";
-
-    const observer = new MutationObserver(() => {
-      if (host.querySelector("iframe")) {
-        setStatus("ready");
-      }
-    });
-
-    observer.observe(host, { childList: true, subtree: true });
-
-    const script = document.createElement("script");
-    script.type = "text/javascript";
-    script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
-    script.async = true;
-    script.onerror = () => setStatus("error");
-    script.innerHTML = JSON.stringify({
-      autosize: true,
-      symbol,
-      interval,
-      timezone: "Asia/Shanghai",
-      theme: "light",
-      style: "1",
-      locale: "zh_CN",
-      hide_side_toolbar: false,
-      allow_symbol_change: false,
-      save_image: false,
-      calendar: false,
-      support_host: "https://www.tradingview.com",
-    });
-
-    host.appendChild(container);
-    host.appendChild(script);
-
-    return () => {
-      observer.disconnect();
-      host.innerHTML = "";
-    };
-  }, [interval, symbol]);
-
-  return (
-    <div className="lo-btc-detail-chart-shell" style={{ height }}>
-      <div
-        ref={chartRef}
-        className="tradingview-widget-container lo-btc-detail-widget"
-        style={{ height: "100%", width: "100%" }}
-      />
-      {status !== "ready" && (
-        <div className={`lo-btc-detail-chart-state${status === "error" ? " is-error" : ""}`}>
-          {status === "error" ? "图表加载失败，请稍后重试" : "图表加载中..."}
-        </div>
-      )}
-    </div>
-  );
-}
 
 function ChartCard({ chart, onOpenFullscreen }) {
   return (
@@ -137,19 +70,8 @@ export default function BTCDetailPage({ onBack }) {
 
   return (
     <div className="lo-btc-detail-page">
-      <header className="lo-btc-detail-topbar">
-        <div className="lo-btc-detail-topbar-inner">
-          <button type="button" className="lo-btc-detail-back" onClick={onBack}>
-            ← 返回
-          </button>
-          <div className="lo-btc-detail-heading">
-            <h1 className="lo-btc-detail-title">L0-B · BTC 周期详细数据</h1>
-            <p className="lo-btc-detail-subtitle">判断 BTC 所处周期位置，以及 BTC 与山寨币的相对结构</p>
-          </div>
-        </div>
-      </header>
-
       <main className="lo-btc-detail-shell">
+        <NewsStrip panel="l0" />
         <ChartCard chart={mainChart} onOpenFullscreen={setFullscreenChart} />
 
         <div className="lo-btc-detail-grid">

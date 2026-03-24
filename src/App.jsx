@@ -4,7 +4,7 @@ import FGDetailPage from "./FGDetailPage";
 import L1DetailPage from "./L1DetailPage";
 import L2DetailPage from "./L2DetailPage";
 import L3DetailPage from "./L3DetailPage";
-import { fetchAlphaSupport, fetchMacroViaWorker, fetchMemeRadar } from "./lib/api";
+import { fetchAlphaSupport, fetchMacroViaWorker, fetchMemeRadar, fetchTokenSecurity } from "./lib/api";
 import { calcManualGnl, clampNum, clampNumber, fmtB, fmtCount, fmtNum, fmtPct, fmtRatio, fmtTop50Price, fmtTrillionsFromInput, fmtUsd, fmtUsdWhole, formatDateLabel, formatTimeLabel, getDateValue, getRecentDateValues, getTop50FallbackPalette, keyForDate, notePreview, parseDateValue, pickTop50Icon, shortAddr, toNum } from "./lib/utils";
 
 // ── COLORS ──
@@ -125,6 +125,9 @@ function buildDailySnapshot({
       count: heroSignal.count,
       reason: heroSignal.reason,
       desc: heroSignal.desc,
+      verdict: heroSignal.verdict,
+      action: heroSignal.action,
+      l4Hint: heroSignal.l4Hint,
     },
     signalSnapshots: {
       l2: l2Signal || null,
@@ -151,6 +154,7 @@ function normalizeAlphaCards(cards) {
     ...emptyAlpha(),
     ...card,
     chain: card?.chain || "solana",
+    security: card?.security || null,
   }));
 }
 
@@ -378,14 +382,87 @@ function calcL4SignalDetail(watchlist, alphaCards) {
   };
 }
 
-function calcHeroSignal(signals) {
+function calcHeroSignal(signals, context) {
   const activeSignals = signals.filter((s) => s && s.color);
-  if (activeSignals.length === 0) return { score: null, color: null, count: 0, reason: "暂无有效信号", ...getHeroInfo(null) };
+  if (activeSignals.length === 0) {
+    const nullVerdict = buildVerdictText(null, null, null);
+    return { score: null, color: null, count: 0, reason: "暂无有效信号", ...getHeroInfo(null), ...nullVerdict };
+  }
   const score = parseFloat((activeSignals.reduce((sum, s) => sum + (s.score ?? signalToScore(s.color)), 0) / activeSignals.length).toFixed(3));
   const hero = getHeroInfo(score);
   const color = score >= 0.7 ? "green" : score >= 0.5 ? "blue" : score >= 0.35 ? "yellow" : "red";
   const reason = activeSignals.map((s) => s.reason).filter(Boolean).join(" | ");
-  return { score, color, count: activeSignals.length, reason, ...hero };
+  const verdictFields = buildVerdictText(score, context?.signals, context?.alignment);
+  return { score, color, count: activeSignals.length, reason, ...hero, ...verdictFields };
+}
+
+function buildVerdictText(score, signals, alignment) {
+  const { l2Signal, l3Signal, fgSignal, l4Signal, l0Cycle } = signals || {};
+  const { bullCount = 0, total = 5 } = alignment || {};
+
+  if (score == null) {
+    return {
+      verdict: "数据加载中，等待信号就绪",
+      action: "点击「更新数据」获取最新状态",
+      l4Hint: "等待数据加载完成",
+    };
+  }
+
+  const bearSignals = [];
+  const bullSignals = [];
+
+  if (l0Cycle === "contraction") bearSignals.push("L0 周期收缩");
+  else if (l0Cycle === "expansion") bullSignals.push("L0 周期扩张");
+
+  if (l2Signal?.color === "red") bearSignals.push("L2 弹药流出");
+  else if (l2Signal?.color === "green") bullSignals.push("L2 弹药流入");
+
+  if (l3Signal?.color === "red") bearSignals.push("L3 热度偏弱");
+  else if (l3Signal?.color === "green") bullSignals.push("L3 热度偏强");
+
+  if (fgSignal?.color === "red") bearSignals.push("F&G 恐惧");
+  else if (fgSignal?.color === "green") bullSignals.push("F&G 贪婪");
+
+  if (l4Signal?.color === "red") bearSignals.push("L4 存量偏弱");
+  else if (l4Signal?.color === "green") bullSignals.push("L4 存量活跃");
+
+  const bearStr = bearSignals.length > 0 ? bearSignals.join(" + ") : null;
+  const bullStr = bullSignals.length > 0 ? bullSignals.join(" + ") : null;
+
+  if (score >= 0.7) {
+    return {
+      verdict: `${bullCount}/${total} 信号对齐，${bullStr || "多层共振看涨"}，具备进攻条件`,
+      action: "可积极筛选新标的 · 提高候选转化率 · 适当放大仓位",
+      l4Hint: "适合发现新候选，优先高 V/Liq 标的",
+    };
+  }
+
+  if (score >= 0.5) {
+    return {
+      verdict: `${bullCount}/${total} 信号对齐，${bullStr || "整体偏多"}，可选择性参与`,
+      action: "选择性参与优质标的 · 不追高 · 控制单笔仓位",
+      l4Hint: "可筛选新候选，但严格控制仓位",
+    };
+  }
+
+  if (score >= 0.35) {
+    const reasonParts = [];
+    if (bearStr) reasonParts.push(bearStr);
+    if (bullStr) reasonParts.push(bullStr);
+    const conflict = reasonParts.length > 1 ? reasonParts.join("，但 ") : (reasonParts[0] || "信号分歧");
+
+    return {
+      verdict: `${bullCount}/${total} 信号对齐，${conflict}，等待确认`,
+      action: "不开新仓 · 观察已有持仓变化 · 等待信号进一步明确",
+      l4Hint: "仅观察已有候选，不建议新增标的",
+    };
+  }
+
+  return {
+    verdict: `${bullCount}/${total} 信号对齐，${bearStr || "多层偏空"}，不具备进攻条件`,
+    action: "不开新仓 · 缩减观察列表 · 等待环境改善",
+    l4Hint: "防御期，不建议开新仓，仅观察已有候选质量",
+  };
 }
 
 const signalEmoji = { green: "🟢", yellow: "🟡", red: "🔴" };
@@ -887,25 +964,18 @@ function LayerGateBar({
   const completedCount = layers.filter((layer) => layer.done).length;
   const l4Ready = layers[0].done && layers[1].done && layers[2].done;
   const sectionTargetMap = {
-    L0: ["section-l0"],
-    L1: ["section-l1", "section-market"],
-    L2: ["section-l2", "section-market"],
-    L3: ["section-l3", "section-market"],
+    L0: ["section-l4"],
+    L1: ["section-l4"],
+    L2: ["section-l4"],
+    L3: ["section-l4"],
     L4: ["section-l4"],
   };
   const sectionToLayerMap = {
-    "section-l0": "L0",
-    "section-btc": "L0",
-    "section-market": "L1",
-    "section-l1": "L1",
-    "section-l2": "L2",
-    "section-l3": "L3",
     "section-l4": "L4",
-    "section-review": "L4",
   };
 
   useEffect(() => {
-    const sectionIds = ["section-l0", "section-btc", "section-market", "section-l1", "section-l2", "section-l3", "section-l4", "section-review"];
+    const sectionIds = ["section-l4"];
     const observed = sectionIds
       .map((id) => document.getElementById(id))
       .filter(Boolean);
@@ -2132,6 +2202,28 @@ function getAlphaSummaryTone(current, options) {
   return { color: matched.c, glow: `0 0 4px ${matched.c}` };
 }
 
+function getSecurityRating(security) {
+  if (!security) return null;
+
+  const honeypot = security.is_honeypot === true || security.honeypot === true;
+  const buyTax = toNum(security.buy_tax ?? security.buyTax);
+  const sellTax = toNum(security.sell_tax ?? security.sellTax);
+  const isMintable = security.is_mintable === true || security.mintable === true;
+  const canFreeze = security.can_freeze === true || security.freezeable === true;
+  const riskLevel = toNum(security.risk_level ?? security.riskLevel);
+
+  if (honeypot) return { label: "危险", tone: "red", reason: "蜜罐合约" };
+  if ((buyTax != null && buyTax > 10) || (sellTax != null && sellTax > 10)) {
+    return { label: "危险", tone: "red", reason: `税率过高 (买${buyTax ?? "—"}%/卖${sellTax ?? "—"}%)` };
+  }
+  if (isMintable) return { label: "注意", tone: "yellow", reason: "可增发" };
+  if (canFreeze) return { label: "注意", tone: "yellow", reason: "可冻结" };
+  if (riskLevel != null && riskLevel >= 4) return { label: "危险", tone: "red", reason: "高风险合约" };
+  if (riskLevel != null && riskLevel >= 2) return { label: "注意", tone: "yellow", reason: "存在风险项" };
+
+  return { label: "安全", tone: "green", reason: "未发现明显风险" };
+}
+
 function AlphaCard({ card, idx, onChange, autoData, autoLoading, onFetchAuto, onAddToWatch, onClear, watchHasSlot, expanded = false, onToggle = null, id, onDecision }) {
   const stopCardToggle = useCallback((event) => {
     event.stopPropagation();
@@ -2149,6 +2241,7 @@ function AlphaCard({ card, idx, onChange, autoData, autoLoading, onFetchAuto, on
     { label: "动量", tone: getAlphaSummaryTone(card.momentumJudgment, MOMENTUM_OPTS) },
     { label: "池子", tone: getAlphaSummaryTone(card.poolJudgment, POOL_OPTS) },
   ];
+  const securityRating = getSecurityRating(card.security || autoData?.security);
   return (
     <div
       id={id}
@@ -2199,6 +2292,23 @@ function AlphaCard({ card, idx, onChange, autoData, autoLoading, onFetchAuto, on
           marginTop: 8,
         }}
       >
+        {securityRating && (
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <div
+              aria-hidden="true"
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: securityRating.tone === "green" ? C.green : securityRating.tone === "red" ? C.red : C.orange,
+                boxShadow: `0 0 4px ${securityRating.tone === "green" ? C.green : securityRating.tone === "red" ? C.red : C.orange}`,
+              }}
+            />
+            <span style={{ fontSize: 11, color: securityRating.tone === "green" ? C.green : securityRating.tone === "red" ? C.red : C.orange, fontWeight: 700 }}>
+              {securityRating.label}
+            </span>
+          </div>
+        )}
         {summaryItems.map((item) => (
           <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <div
@@ -2229,6 +2339,11 @@ function AlphaCard({ card, idx, onChange, autoData, autoLoading, onFetchAuto, on
                 <div style={{ fontSize: "var(--lo-text-meta)", color: C.labelQ }}>{autoLoading ? "正在从 Worker 拉取" : `更新于 ${formatTimeLabel(autoData?.updated_at)}`}</div>
               </div>
               {autoData?.error && <div style={{ fontSize: "var(--lo-text-meta)", color: C.red, marginBottom: 8 }}>{autoData.error}</div>}
+              {securityRating?.reason && (
+                <div style={{ fontSize: "var(--lo-text-meta)", color: securityRating.tone === "green" ? C.green : securityRating.tone === "red" ? C.red : C.orange, marginBottom: 8 }}>
+                  安全评级：{securityRating.label} · {securityRating.reason}
+                </div>
+              )}
               <div className="lo-alpha-auto-grid">
                 <div style={{ background: "rgba(120,120,128,0.05)", borderRadius: 8, padding: "8px" }}>
                   <div style={{ fontSize: "var(--lo-text-meta)", fontWeight: 700, color: C.labelSec, marginBottom: 6 }}>筹码集中度</div>
@@ -2392,7 +2507,20 @@ function AlphaCard({ card, idx, onChange, autoData, autoLoading, onFetchAuto, on
 
 function MemeRadar({ items, loading, error, updatedAt, onAddToAlpha, onAddToWatch, alphaHasSlot, watchHasSlot, heroSignal, l0Cycle, l2Signal, l3Signal }) {
   const [showAll, setShowAll] = useState(false);
-  const [sortMode, setSortMode] = useState("default");
+  const [sortMode, setSortMode] = useState("composite");
+  const compositeScore = useCallback((item) => {
+    const vliq = item.volumeH1 > 0 && item.liquidityUsd > 0 ? item.volumeH1 / item.liquidityUsd : 0;
+    const chg1h = parseFloat(item.priceChangeH1) || 0;
+    const liq = parseFloat(item.liquidityUsd) || 0;
+    const ageMinutes = Number.isFinite(Number(item.pairCreatedAt)) ? Math.max(0, (Date.now() - Number(item.pairCreatedAt)) / 60000) : Infinity;
+
+    const vliqScore = Math.min(vliq / 2, 1);
+    const chgScore = (Math.min(Math.max(chg1h, -100), 500) / 500) * 0.5 + 0.5;
+    const liqScore = Math.min(liq / 200000, 1);
+    const freshScore = ageMinutes < 60 ? 1 : ageMinutes < 180 ? 0.7 : ageMinutes < 720 ? 0.4 : 0.2;
+
+    return vliqScore * 0.35 + chgScore * 0.25 + liqScore * 0.25 + freshScore * 0.15;
+  }, []);
   const formatSinceLaunch = (pairCreatedAt) => {
     const createdAt = Number(pairCreatedAt);
     if (!Number.isFinite(createdAt)) return "—";
@@ -2405,6 +2533,9 @@ function MemeRadar({ items, loading, error, updatedAt, onAddToAlpha, onAddToWatc
     return `${Math.floor(diffHours / 24)} 天前`;
   };
   const sortedItems = useMemo(() => {
+    if (sortMode === "composite") {
+      return [...items].sort((a, b) => compositeScore(b) - compositeScore(a));
+    }
     if (sortMode === "vliq") {
       return [...items].sort((a, b) => {
         const va = (a.volumeH1 > 0 && a.liquidityUsd > 0) ? a.volumeH1 / a.liquidityUsd : -Infinity;
@@ -2420,12 +2551,12 @@ function MemeRadar({ items, loading, error, updatedAt, onAddToAlpha, onAddToWatc
       });
     }
     return items;
-  }, [items, sortMode]);
+  }, [compositeScore, items, sortMode]);
   const displayItems = showAll ? sortedItems : sortedItems.slice(0, 8);
 
   useEffect(() => {
     setShowAll(false);
-    setSortMode("default");
+    setSortMode("composite");
   }, [items]);
 
   const getChangeToneClass = (value) => {
@@ -2517,6 +2648,7 @@ function MemeRadar({ items, loading, error, updatedAt, onAddToAlpha, onAddToWatc
       <div style={{ display: "flex", gap: 6, marginBottom: 10, alignItems: "center" }}>
         <span style={{ fontSize: "var(--lo-text-meta)", color: "var(--lo-text-tertiary)", marginRight: 2 }}>排序</span>
         {[
+          { key: "composite", label: "综合" },
           { key: "default", label: "最新" },
           { key: "vliq", label: "V/Liq ↓" },
           { key: "change", label: "涨幅 ↓" },
@@ -2554,6 +2686,19 @@ function MemeRadar({ items, loading, error, updatedAt, onAddToAlpha, onAddToWatc
               <div className="meme-radar-main">
                 <div className="meme-radar-symbol-row">
                   <span className="meme-radar-symbol">{item.symbol || "—"}</span>
+                  {idx < 3 && sortMode === "composite" && (
+                    <span style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: "#fff",
+                      background: "var(--lo-brand)",
+                      borderRadius: 4,
+                      padding: "1px 5px",
+                      marginLeft: 6,
+                    }}>
+                      TOP {idx + 1}
+                    </span>
+                  )}
                   <span className="meme-radar-chain">{item.chainId || "unknown"}</span>
                   {item.url && (
                     <a
@@ -2650,6 +2795,7 @@ const emptyAlpha = () => ({
   poolLiqVol: "",
   poolJudgment: "",
   note: "",
+  security: null,
 });
 const buildEmptyWatchlist = () => Array.from({ length: 5 }, emptyWatchRow);
 const buildEmptyAlphaCards = () => Array.from({ length: 3 }, emptyAlpha);
@@ -2665,7 +2811,6 @@ export default function App() {
     }
   });
   const todayValue = getDateValue();
-  const yesterdayValue = getDateValue(new Date(Date.now() - 86400000));
   const [selectedDate, setSelectedDate] = useState(todayValue);
   const [macro, setMacro] = useState(null);
   const [macroLoading, setMacroLoading] = useState(false);
@@ -2677,10 +2822,8 @@ export default function App() {
   const [mvrvManual, setMvrvManual] = useState({ score: "", date: "", source: "LookIntoBitcoin" });
   const [fgVal, setFgVal] = useState("");
   const [dailyNote, setDailyNote] = useState("");
-  const [historyFilter, setHistoryFilter] = useState("all");
   const [historySummaries, setHistorySummaries] = useState([]);
   const [trendSeries, setTrendSeries] = useState({ btc: [], l1: [], l2: [], l3: [], fg: [] });
-  const [showSystemStatus, setShowSystemStatus] = useState(false);
   const [saveState, setSaveState] = useState({ tone: "idle", label: "未保存", detail: "等待输入变化" });
   const [cacheState, setCacheState] = useState({ tone: "idle", label: "未读取", detail: "当天点击“更新数据”后按默认策略更新" });
   const [viewState, setViewState] = useState({ tone: "idle", label: "等待切换", detail: "切日期后会重载当日快照" });
@@ -2699,6 +2842,7 @@ export default function App() {
   const [watchAutoData, setWatchAutoData] = useState({});
   const [watchAutoLoading, setWatchAutoLoading] = useState({});
   const [watchAutoRefreshEnabled, setWatchAutoRefreshEnabled] = useState(false);
+  const [showAlphaHistory, setShowAlphaHistory] = useState(false);
   const [memeRadarItems, setMemeRadarItems] = useState([]);
   const [memeRadarLoading, setMemeRadarLoading] = useState(false);
   const [memeRadarError, setMemeRadarError] = useState(null);
@@ -3084,8 +3228,16 @@ export default function App() {
     if (!card?.token) return;
     setAlphaAutoLoading((prev) => ({ ...prev, [idx]: true }));
     try {
-      const data = await fetchAlphaSupport(card.chain || "solana", card.token.trim());
-      setAlphaAutoData((prev) => ({ ...prev, [idx]: data }));
+      const chain = card.chain || "solana";
+      const token = card.token.trim();
+      const [data, security] = await Promise.all([
+        fetchAlphaSupport(chain, token),
+        fetchTokenSecurity(chain, token),
+      ]);
+      setAlphaAutoData((prev) => ({ ...prev, [idx]: { ...data, security } }));
+      setAlphaCards((prev) => prev.map((item, itemIdx) => (
+        itemIdx === idx ? { ...item, security: security || null } : item
+      )));
     } catch (e) {
       const msg = e.message || "自动拉数失败";
       setAlphaAutoData((prev) => ({
@@ -3096,6 +3248,7 @@ export default function App() {
           chips: { error: msg },
           momentum: { error: msg },
           pool: { error: msg },
+          security: null,
         },
       }));
     } finally {
@@ -3266,7 +3419,16 @@ export default function App() {
   const l3Signal = useMemo(() => (macro ? calcL3SignalDetail(macro) : null), [macro]);
   const fgSignal = useMemo(() => calcFGSignalDetail(parseInt(fgVal) || null), [fgVal]);
   const l4Signal = useMemo(() => calcL4SignalDetail(watchlist, alphaCards), [watchlist, alphaCards]);
-  const heroSignal = useMemo(() => calcHeroSignal([l2Signal, l3Signal, fgSignal, l4Signal]), [l2Signal, l3Signal, fgSignal, l4Signal]);
+  const heroSignal = useMemo(() => calcHeroSignal(
+    [l2Signal, l3Signal, fgSignal, l4Signal],
+    {
+      signals: { l2Signal, l3Signal, fgSignal, l4Signal, l0Cycle },
+      alignment: {
+        bullCount: [l2Signal, l3Signal, fgSignal, l4Signal].filter((s) => s?.color === "green").length + (l0Cycle === "expansion" ? 1 : 0),
+        total: 5,
+      },
+    }
+  ), [l2Signal, l3Signal, fgSignal, l4Signal, l0Cycle]);
   const recordAlphaDecision = useCallback((idx, decision) => {
     const card = alphaCards[idx];
     if (!card?.token) return;
@@ -3291,29 +3453,7 @@ export default function App() {
       return next;
     });
   }, [alphaCards, heroSignal, l2Signal, l3Signal, l0Cycle]);
-  const filteredHistory = historySummaries.filter((item) => {
-    if (historyFilter === "macro") return item.hasMacro;
-    if (historyFilter === "notes") return !!item.note;
-    if (historyFilter === "attack") return item.hero?.label === "进　攻";
-    return true;
-  });
-  const historyWithHero = filteredHistory.filter((item) => item.hero?.score != null);
-  const avgHeroScore = historyWithHero.length > 0 ? (historyWithHero.reduce((sum, item) => sum + item.hero.score, 0) / historyWithHero.length) : null;
-  const fgHistoryItems = filteredHistory.filter((item) => item.fgVal !== "" && !isNaN(Number(item.fgVal)));
-  const avgFg = fgHistoryItems.length > 0 ? (fgHistoryItems.reduce((sum, item) => sum + Number(item.fgVal), 0) / fgHistoryItems.length) : null;
-  const fgHistoryPoints = useMemo(() => (
-    [...historySummaries]
-      .sort((a, b) => String(a.dateValue || "").localeCompare(String(b.dateValue || "")))
-      .map((item) => Number(item.fgVal))
-      .filter((value) => Number.isFinite(value))
-      .slice(-10)
-  ), [historySummaries]);
-  const macroDays = filteredHistory.filter((item) => item.hasMacro).length;
-  const attackDays = filteredHistory.filter((item) => item.hero?.label === "进　攻").length;
   const selectedHistorySummary = historySummaries.find((item) => item.dateValue === selectedDate) || null;
-  const historyState = historySummaries.length === 0
-    ? { tone: "warn", label: "无历史记录", detail: "还没有任何按日快照" }
-    : { tone: "ok", label: `${historySummaries.length} 条记录`, detail: `近 30 天内有 ${macroDays} 天宏观快照` };
   const l4GateReady = Boolean(l0Cycle) && heroSignal?.score != null && Boolean(l2Signal);
   const l4SignalGreen = l2Signal?.color === "green" && l3Signal?.color === "green";
   const notePanelSummary = isTodayView
@@ -3730,624 +3870,7 @@ export default function App() {
       />
 
       <div style={{ position: "relative", zIndex: 1 }}>
-      <div className="lo-topbar">
-        <div className="lo-topbar-inner">
-          <div>
-            <div style={{ fontSize: "var(--lo-text-secondary-value)", fontWeight: 700, letterSpacing: -0.5, color: isDarkTheme ? "var(--lo-text-primary)" : "#0F172A" }}>LiquidityOS</div>
-            <div style={{ fontSize: "var(--lo-text-meta)", color: isDarkTheme ? "var(--lo-text-secondary)" : C.labelTer, marginTop: 4 }}>
-              {macroTime ? `当前数据：${macroSource} · ${macroTime}` : `当前工作区：${today}`}
-            </div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            <div className="lo-badge" style={topbarBadgeStyle}>数据状态 · {dataFreshLabel}</div>
-            <button type="button" onClick={toggleTheme} style={themeToggleStyle}>
-              {isDarkTheme ? "☀️ 浅色" : "🌙 暗色"}
-            </button>
-            <button
-              className="lo-btn lo-btn-text"
-              onClick={() => setShowSystemStatus((v) => !v)}
-              style={{ color: C.blue }}
-            >
-              <span className="lo-btn-token"><PatrickMark color={C.blue} size={11} /></span>
-              <span>{showSystemStatus ? "收起诊断" : "展开诊断"}</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <LayerGateBar
-        l0Cycle={l0Cycle}
-        heroSignal={heroSignal}
-        l2Signal={l2Signal}
-        l3Signal={l3Signal}
-        l4Signal={l4Signal}
-        onLayerClick={() => {}}
-      />
-
       <div className="lo-shell" style={{ padding: "24px 24px 56px" }}>
-        <section
-          id="section-l0"
-          style={{
-            padding: isCompactViewport ? "32px 20px 16px" : "40px 24px 16px",
-            position: "relative",
-            zIndex: 1,
-            animation: "rise 0.45s backwards",
-            animationDelay: "0s",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "flex-end",
-              gap: 16,
-              flexWrap: isCompactViewport ? "wrap" : "nowrap",
-              marginBottom: 8,
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-              <div
-                aria-hidden="true"
-                style={{
-                  width: 14,
-                  height: 14,
-                  borderRadius: "50%",
-                  background: signalDotColor,
-                  boxShadow: `0 0 10px ${signalDotColor}`,
-                  flexShrink: 0,
-                }}
-              />
-              <span
-                className="lo-command-core-title"
-                style={{
-                  fontSize: 48,
-                  fontWeight: 700,
-                  letterSpacing: -2,
-                  color: heroTextColor,
-                  lineHeight: 1,
-                }}
-              >
-                {heroSignal.label}
-              </span>
-            </div>
-
-            <div style={{ textAlign: "right", marginLeft: "auto" }}>
-              <div style={{ fontSize: 11, color: isDarkTheme ? "rgba(255,255,255,0.55)" : C.labelTer, marginBottom: 2 }}>HERO 分数</div>
-              <div
-                className="lo-command-score-value"
-                style={{
-                  ...numTextStyle,
-                  fontSize: 28,
-                  fontWeight: 600,
-                  color: isDarkTheme ? "rgba(255,255,255,0.68)" : C.labelSec,
-                  letterSpacing: -1,
-                }}
-              >
-                {heroSignal.score == null ? "—" : heroSignal.score.toFixed(2)}
-              </div>
-            </div>
-          </div>
-
-          <div className="lo-command-core-desc" style={{ fontSize: 14, color: C.labelSec, marginBottom: 20 }}>
-            {heroSignal.desc}
-          </div>
-
-          <div className="lo-command-climate-row" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-            <div className="lo-command-climate-pill" style={heroChipStyle}>
-              <span
-                aria-hidden="true"
-                className="lo-command-climate-dot"
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 999,
-                  background: l0Info.color,
-                  boxShadow: `0 0 8px ${l0Info.color}`,
-                  flexShrink: 0,
-                }}
-              />
-              <span>L0-A 环境 · {l0Info.label}</span>
-            </div>
-            <div className="lo-command-climate-note" style={heroChipStyle}>{l0Info.hint}</div>
-            <div className="lo-command-climate-note" style={heroChipStyle}>有效信号 {heroSignal.count}/4</div>
-          </div>
-
-          <div className="lo-command-cycle-switch" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {Object.entries(cycleMeta).map(([key, meta]) => {
-              const active = l0Cycle === key;
-              const activeTextColor = key === "transition" ? "#000" : "#fff";
-              return (
-                <button
-                  key={key}
-                  onClick={() => { markDirty(); setL0Cycle(key); }}
-                  className={`lo-command-cycle-pill${active ? " active" : ""}`}
-                  style={{
-                    border: active ? `1.5px solid ${meta.color}` : `1.5px solid ${C.sep}`,
-                    background: active ? meta.color : "transparent",
-                    color: active ? activeTextColor : C.labelTer,
-                    borderRadius: 20,
-                    padding: "7px 16px",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  {meta.label}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="lo-command-core-note" style={{ fontSize: 11, color: C.labelQ, marginTop: 8 }}>
-            L0-A 只作为主控环境，不再单独占卡；执行前再用 BTC 主控依据做最后确认。
-          </div>
-        </section>
-
-        <div
-          className="lo-command-signal-strip"
-          style={{
-            margin: "8px 24px 16px",
-            padding: "14px 24px",
-            background: signalStripSurfaceStyle.background,
-            backdropFilter: "blur(16px) saturate(160%)",
-            WebkitBackdropFilter: "blur(16px) saturate(160%)",
-            borderRadius: 16,
-            border: signalStripSurfaceStyle.border,
-            boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
-            display: "grid",
-            gridTemplateColumns: heroSignalStripColumns,
-            animation: "rise 0.45s backwards",
-            animationDelay: "0.08s",
-          }}
-        >
-          {heroSignalStripItems.map(([s, l], idx) => (
-            <div
-              key={l}
-              className="lo-command-signal-item"
-              style={{
-                borderRight: !isCompactViewport && idx !== 3 ? `0.5px solid ${C.sep}` : "none",
-                borderBottom: isCompactViewport && idx < 2 ? `0.5px solid ${C.sep}` : "none",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: 6,
-                padding: isCompactViewport ? "16px 6px" : "18px 6px",
-              }}
-            >
-              <div className="lo-command-signal-emoji">
-                <span
-                  aria-hidden="true"
-                  style={{
-                    display: "inline-block",
-                    width: 10,
-                    height: 10,
-                    borderRadius: "50%",
-                    background: getSignalColorVar(s?.color || "none"),
-                    boxShadow: getHeroLampGlow(s?.color || "none"),
-                  }}
-                />
-              </div>
-              <div className="lo-command-signal-label" style={{ color: signalStripSurfaceStyle.labelColor }}>{l}</div>
-            </div>
-          ))}
-        </div>
-
-        <section
-          id="section-btc"
-          className="lo-command-btc-panel lo-panel lo-nav-card"
-          style={{ padding: sectionCardPadding, marginBottom: 24, marginTop: 0, animation: "rise 0.45s backwards", animationDelay: "0.16s" }}
-          onMouseEnter={handleNavCardMouseEnter}
-          onMouseLeave={handleNavCardMouseLeave}
-        >
-          <div className="lo-command-btc-head">
-            <div>
-              <div className="lo-section-kicker">BTC Anchor</div>
-              <div className="lo-command-btc-title">L0-B · BTC 周期位置</div>
-              <div className="lo-command-btc-note">继续保留 200MA 比率与 MVRV Z-Score，作为 Hero 之后的主控确认依据。</div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setCurrentPage("btc-detail")}
-              style={detailEntryButtonStyle}
-            >
-              详细数据 →
-            </button>
-          </div>
-          <InsightMetricCard
-            variant="main"
-            title="L0-B · BTC"
-            question="BTC 大位置怎么走？"
-            statusKey={btcStatusKey}
-            accentColor={C.blue}
-            primaryLabel="BTC 现价"
-            primaryValue={<span style={numTextStyle}>{macro?.btc?.price ? fmtUsdWhole(macro.btc.price) : "—"}</span>}
-            changeLabel="200MA 比率"
-            changeValue={<span style={numTextStyle}>{fmtPct(btcPositionPct)}</span>}
-            changeTone={btcPositionPct != null ? (btcPositionPct >= 0 ? C.green : C.red) : C.labelTer}
-            summary={btcPanelSummary}
-            points={trendSeries.btc}
-            emptyTrendCopy="历史快照不足，先按现价与 200MA 判断"
-            emptyTrendHint="趋势区先弱化，不影响主控判断"
-            trendDeltaLabel="区间价格变化"
-            trendLatestLabel="最新快照"
-            trendFormatter={fmtUsdWhole}
-            metaItems={[
-              { label: "200MA", value: macro?.btc?.ma_200 ? fmtUsdWhole(macro.btc.ma_200) : "—" },
-              { label: "MVRV Z-Score", value: mvrvManual.score || "—", color: C.blue },
-            ]}
-          />
-          <div className="lo-mvrv-manual">
-            <div className="lo-mvrv-head">
-              <div>
-                <div className="lo-field-label lo-field-label-tight">MVRV 手动位</div>
-                <div style={{ fontSize: "var(--lo-text-meta)", color: C.labelTer, lineHeight: 1.55 }}>保留手动输入，不接自动源，也跟随日快照保存。</div>
-              </div>
-              <div style={{ fontSize: "var(--lo-text-meta)", color: C.labelTer }}>当前值 {mvrvManual.score || "—"}</div>
-            </div>
-            <div className="lo-mvrv-grid">
-              <div>
-                <div className="lo-field-label">Z-Score</div>
-                <input value={mvrvManual.score} onChange={(e) => updMvrvManual("score", e.target.value)} placeholder="2.35" style={{ ...miniNumInput, color: C.blue, textAlign: "left" }} className="lo-input lo-input-left" inputMode="decimal" />
-              </div>
-              <div>
-                <div className="lo-field-label">日期</div>
-                <input value={mvrvManual.date} onChange={(e) => updMvrvManual("date", e.target.value)} placeholder="2026-03-12" style={miniInput} className="lo-input lo-input-left" />
-              </div>
-              <div>
-                <div className="lo-field-label">引用</div>
-                <input value={mvrvManual.source} onChange={(e) => updMvrvManual("source", e.target.value)} placeholder="LookIntoBitcoin" style={miniInput} className="lo-input lo-input-left" />
-              </div>
-            </div>
-          </div>
-          <div className="lo-command-footnote">
-            BTC 数据 {macro?.btc?.source || "—"} · 更新时间 {macro?.btc?.updated_at ? formatTimeLabel(macro.btc.updated_at) : macroTime || "—"} · MVRV 引用 {mvrvManual.source || "—"} / {mvrvManual.date || "未填"}
-          </div>
-        </section>
-
-        <section id="section-market" className="lo-panel lo-market-stage" style={{ padding: sectionCardPadding, marginBottom: 24, animation: "rise 0.45s backwards", animationDelay: "0.24s" }}>
-          <div className="lo-section-head">
-            <div>
-              <div className="lo-section-kicker">Market Context</div>
-              <div className="lo-section-title">先扫环境，再进工作台</div>
-              <div className="lo-section-note">先用四张快扫卡判断今天的环境方向，只有需要维护口径或手动覆盖时，再进入下方的数据维护区。</div>
-            </div>
-            <div className="lo-badge-row">
-              <div className="lo-badge">先扫判断</div>
-              <div className="lo-badge">再做录入</div>
-              <div className="lo-badge">最后进入执行</div>
-            </div>
-          </div>
-
-          <div className="lo-context-summary-grid" style={decisionGridStyle}>
-            <div
-              id="section-l1"
-              className="lo-panel-soft lo-decision-compact lo-nav-card"
-              style={heroDecisionCardStyle}
-              onMouseEnter={handleNavCardMouseEnter}
-              onMouseLeave={handleNavCardMouseLeave}
-            >
-              <InsightMetricCard
-                title="L1 · 净流动性"
-                question="净流动性在扩张还是收缩？"
-                statusKey={l1StatusKey}
-                headAction={(
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage("l1")}
-                    style={detailEntryButtonStyle}
-                  >
-                    详细数据 →
-                  </button>
-                )}
-                accentColor={C.blue}
-                primaryLabel="当前 GNL"
-                primaryValue={<span style={numTextStyle}>{l1CurrentValue == null ? "—" : `${l1CurrentValue.toFixed(3)}T`}</span>}
-                changeLabel="自动口径"
-                changeValue={hasFredAuto ? `${macro.fred.gnl.value_t}T` : "缺失，使用手动位"}
-                changeTone={hasFredAuto ? C.blue : C.orange}
-                summary={l1Summary}
-                points={trendSeries.l1}
-                emptyTrendCopy="历史快照不足，先按当前 GNL 观察"
-                emptyTrendHint="先看左侧 GNL 水平，再等趋势补齐"
-                trendDeltaLabel="区间 GNL 变化"
-                trendLatestLabel="最新快照"
-                trendFormatter={(value) => value == null || Number.isNaN(Number(value)) ? "—" : `${Number(value).toFixed(3)}T`}
-                metaItems={[
-                  { label: "来源", value: hasFredAuto ? fredSource : "手动输入" },
-                  { label: "数据日期", value: hasFredAuto ? (fredDate || "—") : (l1Manual.date || "未填") },
-                  { label: "手动 GNL", value: manualGnl == null ? "—" : `${manualGnl.toFixed(3)}T`, color: C.blue },
-                ]}
-                quickReadChips={l1Chips}
-                actionFramework={{
-                  trigger: "GNL 连续 ≥3 周扩张，且绝对值 >5.5T",
-                  invalidate: "GNL 单周回落 >0.15T，或 RRP 快速膨胀抽走流动性",
-                  watchLevel: "每周四 FRED 数据更新窗口（重点核查 TGA 余额方向）",
-                }}
-                detailExpanded={l1Expanded}
-                onToggleDetail={() => setL1Expanded((prev) => !prev)}
-                expandLabel="展开详细"
-                collapseLabel="收起详细"
-              />
-              {l1Expanded && (
-                <div className="lo-context-card-foot lo-context-card-foot-action">
-                  <span>需要维护口径时，再进入按需维护位。</span>
-                  <button type="button" className="lo-context-inline-toggle" onClick={() => setShowL1Dock((v) => !v)}>
-                    {showL1Dock ? "收起维护区" : "展开维护区"}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {macro && (
-              <>
-                <div id="section-l2" className="lo-panel-soft lo-decision-compact" style={heroDecisionCardStyle}>
-                  <InsightMetricCard
-                    title="L2 · 稳定币弹药"
-                    question="场内弹药在补充还是流失？"
-                    statusKey={l2StatusKey}
-                    headAction={(
-                      <button
-                        type="button"
-                        onClick={() => setCurrentPage("l2")}
-                        style={detailEntryButtonStyle}
-                      >
-                        详细数据 →
-                      </button>
-                    )}
-                    accentColor={C.teal}
-                    primaryLabel="稳定币总市值"
-                    primaryValue={<span style={numTextStyle}>{fmtB(macro.stablecoins?.total)}</span>}
-                    changeLabel="7 日净变化"
-                    changeValue={macro.stablecoins?.change_7d != null ? fmtSignedFromRaw(macro.stablecoins.change_7d) : "—"}
-                    changeArrow={<TrendArrow value={macro.stablecoins?.change_7d_pct} threshold={0.5} />}
-                    changeTone={macro.stablecoins?.change_7d != null ? (macro.stablecoins.change_7d >= 0 ? C.green : C.red) : C.labelTer}
-                    summary={l2Summary}
-                    points={trendSeries.l2}
-                    emptyTrendCopy="历史快照不足，先按总量与 7 日变化判断"
-                    emptyTrendHint="先用左侧净变化做判断，趋势区暂弱化"
-                    trendDeltaLabel="区间总量变化"
-                    trendLatestLabel="最新快照"
-                    trendFormatter={fmtB}
-                    metaItems={[
-                      { label: "7 日占比", value: fmtPct(macro.stablecoins?.change_7d_pct) },
-                      { label: "Solana TVL", value: fmtB(macro.tvl?.solana) },
-                      { label: "BSC TVL", value: fmtB(macro.tvl?.bsc) },
-                    ]}
-                    quickReadChips={l2Chips}
-                    actionFramework={{
-                      trigger: "稳定币总量净增 & Solana 链净流入同步转正，连续 2 周以上",
-                      invalidate: "稳定币净流出连续 2 周，或 Solana 净流入单周转负超 -0.5B",
-                      watchLevel: "Solana 链周净流入方向，以及稳定币总量是否守住当前关口",
-                    }}
-                  />
-                  <div className="lo-context-card-foot">L2 评分 {l2Signal.score.toFixed(2)} · {l2Signal.reason}</div>
-                </div>
-
-                <div id="section-l3" className="lo-panel-soft lo-decision-compact" style={heroDecisionCardStyle}>
-                  <InsightMetricCard
-                    title="L3 · Meme 板块"
-                    question="Meme 风险偏好在升温还是降温？"
-                    statusKey={l3StatusKey}
-                    headAction={(
-                      <button
-                        type="button"
-                        onClick={() => setCurrentPage("l3")}
-                        style={detailEntryButtonStyle}
-                      >
-                        详细数据 →
-                      </button>
-                    )}
-                    accentColor={C.orange}
-                    primaryLabel="Meme 总市值"
-                    primaryValue={<span style={numTextStyle}>{macro.meme?.mcap ? fmtB(macro.meme.mcap) : "—"}</span>}
-                    changeLabel="24h 变化"
-                    changeValue={fmtPct(macro.meme?.mcap_change_24h)}
-                    changeArrow={<TrendArrow value={macro.meme?.mcap_change_24h} threshold={1} />}
-                    changeTone={macro.meme?.mcap_change_24h != null ? (macro.meme.mcap_change_24h >= 0 ? C.green : C.red) : C.labelTer}
-                    summary={l3Summary}
-                    points={trendSeries.l3}
-                    emptyTrendCopy="历史快照不足，先按总市值与 24h 变化判断"
-                    emptyTrendHint="先看左侧热度信号，趋势区后补"
-                    trendDeltaLabel="区间板块变化"
-                    trendLatestLabel="最新快照"
-                    trendFormatter={fmtB}
-                    metaItems={[
-                      { label: "Solana DEX", value: fmtB(macro.dex_volume?.solana?.total_24h) },
-                      { label: "Base DEX", value: fmtB(macro.dex_volume?.base?.total_24h) },
-                      { label: "BSC DEX", value: fmtB(macro.dex_volume?.bsc?.total_24h) },
-                    ]}
-                    quickReadChips={l3Chips}
-                    actionFramework={{
-                      trigger: "Meme 市值 24h ≥+3% 且 Solana DEX 量同步放大 ≥10%",
-                      invalidate: "DEX 成交量连续 2 日收缩 >15%，或 Meme 市值跌破近期整数关口",
-                      watchLevel: "Meme 市值当前区间支撑位，及下一轮 Solana DEX 日量能否超前高",
-                    }}
-                  />
-                  <div className="lo-context-card-foot">L3 评分 {l3Signal.score.toFixed(2)} · {l3Signal.reason}</div>
-                </div>
-              </>
-            )}
-
-            <div
-              className="lo-panel-soft lo-decision-compact lo-fg-card-compact lo-nav-card"
-              style={{
-                ...heroDecisionCardStyle,
-                display: "flex",
-                gap: 16,
-                alignItems: "flex-start",
-                background: fgCardBackground,
-                transition: "background 0.8s ease, border-color 0.4s ease",
-              }}
-              onMouseEnter={handleNavCardMouseEnter}
-              onMouseLeave={handleNavCardMouseLeave}
-            >
-              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 12 }}>
-                <div style={{ ...secLabel, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", padding: 0 }}>
-                  <span>情绪补充 · F&G</span>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage("fg")}
-                    style={detailEntryButtonStyle}
-                  >
-                    详细数据 →
-                  </button>
-                </div>
-                <div style={{ display: "inline-flex", alignItems: "center", gap: 8, alignSelf: "flex-start", padding: "6px 10px", borderRadius: 999, background: C.fill, border: `1px solid ${C.sep}` }}>
-                  <SignalDot color={fgSignal.color || "none"} size={8} />
-                  <span style={{ fontSize: "var(--lo-text-meta)", fontWeight: 700, color: getFgToneColor(fgGaugeValue) }}>{fgTagLabel}</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "center" }}>
-                  <FGGauge value={fgGaugeValue} size={160} />
-                </div>
-                <div className="lo-fg-card-note">只做情绪辅助，不替代 L1-L3 判断。</div>
-                <input
-                  value={fgVal}
-                  onChange={(e) => { markDirty(); setFgVal(e.target.value.replace(/\D/, "")); }}
-                  maxLength={3}
-                  placeholder="输入今日 F&G"
-                  className="lo-fg-card-input"
-                  style={{
-                    ...numTextStyle,
-                    width: "100%",
-                    textAlign: "left",
-                    fontSize: "var(--lo-text-meta)",
-                    background: "rgba(255,255,255,0.04)",
-                    border: "1px solid rgba(255,255,255,0.08)",
-                  }}
-                />
-                <div className="lo-context-card-foot">F&G 评分 {fgSignal.score.toFixed(2)} · {fgSignal.reason}</div>
-              </div>
-
-              <div style={{ flex: "0 0 140px", width: 140, minHeight: 1, display: "grid", gap: 10, alignContent: "start" }}>
-                {fgHistoryCompareItems.length > 0 ? (
-                  fgHistoryCompareItems.map((item) => (
-                    <div
-                      key={item.label}
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "12px auto 1fr",
-                        alignItems: "center",
-                        gap: 8,
-                        padding: "8px 10px",
-                        borderRadius: 12,
-                        background: C.fill,
-                        border: `1px solid ${C.sep}`,
-                      }}
-                    >
-                      <SignalDot color={getFgToneKey(item.value)} size={8} />
-                      <span style={{ ...numTextStyle, fontSize: "var(--lo-text-secondary-value)", fontWeight: 700, color: getFgToneColor(item.value) }}>
-                        {Math.round(item.value)}
-                      </span>
-                      <span style={{ fontSize: "var(--lo-text-meta)", color: C.labelQ, justifySelf: "end" }}>{item.label}</span>
-                    </div>
-                  ))
-                ) : fgHistoryPoints.length >= 2 ? (
-                  <TrendAssist
-                    points={fgHistoryPoints}
-                    statusKey={fgSignal.color === "green" ? "positive" : fgSignal.color === "red" ? "negative" : "neutral"}
-                    ariaLabel="F&G 历史趋势"
-                    emptyLabel=""
-                    emptyHint=""
-                    deltaLabel="区间变化"
-                    latestLabel="最新值"
-                    valueFormatter={(v) => v == null ? "—" : String(Math.round(v))}
-                  />
-                ) : (
-                  <div
-                    style={{
-                      background: "rgba(255,255,255,0.04)",
-                      borderRadius: 10,
-                      padding: 16,
-                      display: "flex",
-                      flexDirection: "column",
-                      justifyContent: "center",
-                      alignItems: "center",
-                      height: "100%",
-                      textAlign: "center",
-                      gap: 6,
-                    }}
-                  >
-                    <div style={{ fontSize: "var(--lo-text-meta)", color: C.labelQ }}>每次保存日快照后</div>
-                    <div style={{ fontSize: "var(--lo-text-meta)", color: C.labelQ }}>趋势会逐渐积累</div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {l1Expanded && showL1Dock && (
-          <div className="lo-context-dock">
-            <div className="lo-context-dock-head">
-              <div>
-                <div className="lo-context-dock-kicker">Manual Dock</div>
-                <div className="lo-context-dock-title">L1 数据维护区</div>
-                <div className="lo-context-dock-copy">这里不是第一眼快扫区，而是需要维护 FRED 口径、手动覆盖或补录日期时才进入的工作位。</div>
-              </div>
-              <div className="lo-context-dock-status">{hasFredAuto ? `${fredSource} · ${fredDate || "—"}` : "当前使用手动位 / 待刷新"}</div>
-            </div>
-
-            <div className="lo-context-dock-grid">
-              <div className="lo-context-dock-panel">
-                <div style={{ fontSize: "var(--lo-text-meta)", color: C.labelTer, marginBottom: 10, padding: "8px 10px", background: C.fill, borderRadius: 10, lineHeight: 1.55 }}>净流动性由 Fed、TGA、RRP 共同决定，反映市场可用美元背景。自动数据优先来自 Worker 聚合；缺失时仍可手动录入并自动计算 GNL。</div>
-                {hasFredAuto ? (
-                  <>
-                    <DataRow label="GNL" value={macro.fred.gnl.value_t + "T"} color={C.blue} />
-                    <DataRow label="Fed" value={macro.fred.fed?.value ? (macro.fred.fed.value / 1e6).toFixed(3) + "T" : "—"} sub={macro.fred.fed?.date} />
-                    <DataRow label="TGA" value={macro.fred.tga?.value ? (macro.fred.tga.value / 1e6).toFixed(3) + "T" : "—"} />
-                    <DataRow label="RRP" value={macro.fred.rrp?.value ? (macro.fred.rrp.value / 1e3).toFixed(3) + "T" : "—"} />
-                    <div style={{ fontSize: "var(--lo-text-meta)", color: C.labelTer, marginTop: 8, padding: "8px 10px", background: C.fill, borderRadius: 10 }}>来源：{fredSource} · 数据日期：{fredDate || "—"} · 更新时间：{fredUpdatedAt ? formatTimeLabel(fredUpdatedAt) : "—"}</div>
-                  </>
-                ) : (
-                  <div style={{ fontSize: "var(--lo-text-meta)", color: C.labelTer, padding: "8px 10px", background: C.fill, borderRadius: 10 }}>{macro ? "FRED Key 未设置，当前使用手动录入。单位统一按 T 输入，例如 `6.600`。" : "尚未刷新宏观数据，可先手动录入 L1。单位统一按 T 输入，例如 `6.600`。"}</div>
-                )}
-              </div>
-
-              <div className="lo-context-dock-panel">
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 8 }}>
-                  <ScanInput
-                    label="Fed"
-                    unit="T"
-                    value={l1Manual.fed}
-                    onChange={(e) => updL1Manual("fed", e.target.value)}
-                    placeholder="6.600"
-                  />
-                  <ScanInput
-                    label="TGA"
-                    unit="T"
-                    value={l1Manual.tga}
-                    onChange={(e) => updL1Manual("tga", e.target.value)}
-                    placeholder="0.700"
-                  />
-                  <ScanInput
-                    label="RRP"
-                    unit="T"
-                    value={l1Manual.rrp}
-                    onChange={(e) => updL1Manual("rrp", e.target.value)}
-                    placeholder="0.300"
-                  />
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, alignItems: "end" }}>
-                  <div>
-                    <div style={{ fontSize: "var(--lo-text-meta)", fontWeight: 600, color: C.labelQ, marginBottom: 3 }}>数据日期</div>
-                    <input value={l1Manual.date} onChange={(e) => updL1Manual("date", e.target.value)} placeholder="2026-03-09" style={{ ...miniInput, textAlign: "left" }} />
-                  </div>
-                  <div className="lo-context-dock-highlight">
-                    <GNLReadout value={manualGnl} />
-                  </div>
-                </div>
-                <div className="lo-context-dock-values">
-                  <div style={{ fontSize: "var(--lo-text-meta)", color: C.labelTer }}>Fed：{fmtTrillionsFromInput(l1Manual.fed)}</div>
-                  <div style={{ fontSize: "var(--lo-text-meta)", color: C.labelTer }}>TGA：{fmtTrillionsFromInput(l1Manual.tga)}</div>
-                  <div style={{ fontSize: "var(--lo-text-meta)", color: C.labelTer }}>RRP：{fmtTrillionsFromInput(l1Manual.rrp)}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-          )}
-        </section>
-
-        <LayerTransition message={layerTransitionMessage} isDark={isDarkTheme} style={{ animation: "rise 0.45s backwards", animationDelay: "0.32s" }} />
-
         <section id="section-l4" className="lo-panel" style={{ padding: sectionCardPadding, marginBottom: 24, opacity: l4GateReady ? 1 : 0.72, transition: "opacity 180ms ease", animation: "rise 0.45s backwards", animationDelay: "0.40s" }}>
           <div className="lo-section-head">
             <div>
@@ -4377,6 +3900,35 @@ export default function App() {
               )}
             </div>
           </div>
+
+          {heroSignal?.l4Hint && (
+            <div style={{
+              margin: "0 16px 16px",
+              padding: "12px 16px",
+              background: heroSignal.color === "green"
+                ? "rgba(52,199,89,0.08)"
+                : heroSignal.color === "red"
+                  ? "rgba(255,59,48,0.08)"
+                  : "rgba(255,149,0,0.08)",
+              border: `1px solid ${heroSignal.color === "green"
+                ? "rgba(52,199,89,0.2)"
+                : heroSignal.color === "red"
+                  ? "rgba(255,59,48,0.2)"
+                  : "rgba(255,149,0,0.2)"}`,
+              borderRadius: 10,
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+            }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: getSignalColorVar(heroSignal.color || "none"), flexShrink: 0 }} />
+              <span style={{ fontSize: "var(--lo-text-body)", fontWeight: 600, color: C.label }}>
+                {heroSignal.label}期
+              </span>
+              <span style={{ fontSize: "var(--lo-text-label)", color: C.labelSec }}>
+                {heroSignal.l4Hint}
+              </span>
+            </div>
+          )}
 
           <MemeRadar
             items={memeRadarItems}
@@ -4596,100 +4148,13 @@ export default function App() {
           </div>
         </section>
 
-        <section id="section-review" className="lo-record-stage" style={{ marginBottom: 24, padding: sectionCardPadding, animation: "rise 0.45s backwards", animationDelay: "0.48s" }}>
-          <div className="lo-record-stage-head">
-            <div>
-              <div className="lo-section-kicker">Review & Diagnostics</div>
-              <div className="lo-section-title">复盘与诊断层</div>
-              <div className="lo-section-note">这一层只负责回看过去的判断并确认系统运行状态。摘要与笔记已上浮成全局记录工具，不再埋在页面最后。</div>
-            </div>
-            <div className="lo-record-stage-key">Workspace Key · {keyForDate(selectedDate)}</div>
-          </div>
-
-          <div className="lo-record-grid lo-record-shell" style={{ gap: 24 }}>
-            <div className="lo-record-panel lo-record-panel-history" style={{ gridColumn: "span 9", padding: sectionCardPadding }}>
-              <div className="lo-record-panel-head">
-                <div>
-                  <div className="lo-record-panel-kicker">Archive</div>
-                  <div className="lo-record-panel-title">历史回看</div>
-                  <div className="lo-record-panel-note">把日快照当成复盘档案来读。先切时间，再看当天 Hero、情绪和 L4 结果，最后回看留下的笔记痕迹。</div>
-                </div>
-                <div className="lo-record-history-switch">
-                  <button onClick={() => setSelectedDate(todayValue)} className={`lo-record-switch-btn${selectedDate === todayValue ? " active" : ""}`}>今天</button>
-                  <button onClick={() => setSelectedDate(yesterdayValue)} className={`lo-record-switch-btn${selectedDate === yesterdayValue ? " active" : ""}`}>昨天</button>
-                  <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} style={{ ...miniInput, textAlign: "left", padding: "8px 10px" }} className="lo-record-date-input" />
-                </div>
-              </div>
-
-              <div className="lo-record-history-banner">
-                <div className="lo-record-history-banner-title">{isTodayView ? "当前是今日工作区" : "当前在历史快照视图"}</div>
-                <div className="lo-record-history-banner-copy">{isTodayView ? "今天可以继续更新数据、记录判断并写入快照。" : "历史日期只读取本地已保存记录，用来复盘，不再请求网络。"}</div>
-              </div>
-
-              <div className="lo-record-summary-grid">
-                {[["记录", filteredHistory.length], ["宏观", macroDays], ["进攻日", attackDays], ["Hero 均值", avgHeroScore == null ? "—" : avgHeroScore.toFixed(2)], ["F&G 均值", avgFg == null ? "—" : avgFg.toFixed(0)], ["当前笔记", selectedHistorySummary?.note ? "已记录" : "未留痕"]].map(([label, value]) => (
-                  <div key={label} className="lo-record-summary-card">
-                    <div className="lo-record-summary-label">{label}</div>
-                    <div className="lo-record-summary-value">{value}</div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="lo-record-filter-row">
-                {[
-                  { key: "all", label: "全部记录" },
-                  { key: "macro", label: "有宏观快照" },
-                  { key: "notes", label: "有笔记" },
-                  { key: "attack", label: "进攻日" },
-                ].map((opt) => (
-                  <button
-                    key={opt.key}
-                    onClick={() => setHistoryFilter(opt.key)}
-                    className={`lo-record-filter-btn${historyFilter === opt.key ? " active" : ""}`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-
-              {historySummaries.length === 0 ? (
-                <div className="lo-record-empty">还没有任何可回看的历史记录。等你保存日快照后，这里会逐步形成复盘档案。</div>
-              ) : filteredHistory.length === 0 ? (
-                <div className="lo-record-empty">当前筛选下没有匹配记录，可以切回全部记录继续回看。</div>
-              ) : (
-                <div className="lo-record-timeline">
-                  {filteredHistory.map((item) => {
-                    const active = item.dateValue === selectedDate;
-                    return (
-                      <button
-                        key={item.dateValue}
-                        onClick={() => setSelectedDate(item.dateValue)}
-                        className={`lo-record-timeline-item${active ? " active" : ""}`}
-                      >
-                        <div className="lo-record-timeline-dot" />
-                        <div className="lo-record-timeline-body">
-                          <div className="lo-record-timeline-head">
-                            <div className="lo-record-timeline-date">{formatDateLabel(item.dateValue)}</div>
-                            <div className="lo-record-timeline-time">{item.savedAt ? new Date(item.savedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : "—"}</div>
-                          </div>
-                          <div className="lo-record-timeline-meta">
-                            Hero：{item.hero?.label || "—"} · F&G：{item.fgVal === "" ? "—" : item.fgVal} · L4：
-                            {item.l4?.color ? (
-                              <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 6 }}>
-                                <SignalDot color={item.l4.color} size={8} />
-                              </span>
-                            ) : "—"}
-                          </div>
-                          <div className="lo-record-timeline-note">笔记：{notePreview(item.note)} {item.hasMacro ? "" : "· 无宏观快照"}</div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div className="lo-record-panel" style={{ gridColumn: "span 9", padding: sectionCardPadding, marginTop: 16 }}>
+        <section style={{ margin: "0 24px 24px", animation: "rise 0.45s backwards", animationDelay: "0.48s" }}>
+          <button type="button" className="lo-collapse-trigger" onClick={() => setShowAlphaHistory((prev) => !prev)}>
+            <span className="lo-collapse-trigger__title">Alpha 决策历史</span>
+            <span className="lo-collapse-trigger__hint">{alphaDecisions.length} 条记录 · {showAlphaHistory ? "收起" : "展开"}</span>
+          </button>
+          {showAlphaHistory && (
+            <div className="lo-panel" style={{ marginTop: 12, padding: sectionCardPadding }}>
               <div className="lo-record-panel-head">
                 <div>
                   <div className="lo-record-panel-kicker">Decisions</div>
@@ -4723,28 +4188,13 @@ export default function App() {
                       { label: "观", color: "var(--lo-yellow)" },
                       { label: "弃", color: "var(--lo-red)" },
                     ].map(({ label, color }) => (
-                      <div key={label} style={{
-                        display: "flex", alignItems: "center", gap: 5,
-                        padding: "5px 12px", borderRadius: 8,
-                        background: "rgba(120,120,128,0.05)",
-                        fontSize: "var(--lo-text-meta)",
-                      }}>
+                      <div key={label} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 8, background: "rgba(120,120,128,0.05)", fontSize: "var(--lo-text-meta)" }}>
                         <span style={{ fontWeight: 700, color }}>{label}</span>
-                        <span style={{ fontWeight: 600, color: "var(--lo-text-primary)" }}>
-                          {counts[label]}
-                        </span>
-                        <span style={{ color: "var(--lo-text-tertiary)" }}>
-                          ({total > 0 ? Math.round(counts[label] / total * 100) : 0}%)
-                        </span>
+                        <span style={{ fontWeight: 600, color: "var(--lo-text-primary)" }}>{counts[label]}</span>
+                        <span style={{ color: "var(--lo-text-tertiary)" }}>({total > 0 ? Math.round(counts[label] / total * 100) : 0}%)</span>
                       </div>
                     ))}
-                    <div style={{
-                      display: "flex", alignItems: "center", gap: 5,
-                      padding: "5px 12px", borderRadius: 8,
-                      background: "rgba(120,120,128,0.05)",
-                      fontSize: "var(--lo-text-meta)",
-                      color: "var(--lo-text-secondary)",
-                    }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 8, background: "rgba(120,120,128,0.05)", fontSize: "var(--lo-text-meta)", color: "var(--lo-text-secondary)" }}>
                       合计 <span style={{ fontWeight: 600, color: "var(--lo-text-primary)", marginLeft: 4 }}>{total}</span>
                     </div>
                   </div>
@@ -4762,12 +4212,7 @@ export default function App() {
                     const date = new Date(rec.timestamp);
                     const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
                     return (
-                      <div key={rec.id} style={{
-                        display: "flex", alignItems: "center", gap: 10,
-                        padding: "8px 12px", borderRadius: 8,
-                        background: "rgba(120,120,128,0.05)",
-                        fontSize: "var(--lo-text-meta)",
-                      }}>
+                      <div key={rec.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, background: "rgba(120,120,128,0.05)", fontSize: "var(--lo-text-meta)" }}>
                         <span style={{ fontWeight: 700, color: decisionColor, minWidth: 24 }}>{rec.decision}</span>
                         <span style={{ fontWeight: 600, color: "var(--lo-text-primary)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {rec.token}
@@ -4791,62 +4236,8 @@ export default function App() {
                 </div>
               )}
             </div>
-
-            <div className="lo-record-stack" style={{ gridColumn: "span 3", gap: 24 }}>
-              <div className="lo-record-panel lo-record-panel-diagnostics" style={{ padding: sectionCardPadding }}>
-                <button onClick={() => setShowSystemStatus((v) => !v)} className="lo-record-diagnostics-toggle">
-                  <div>
-                    <div className="lo-record-panel-kicker">Diagnostics</div>
-                    <div className="lo-record-panel-title lo-record-panel-title-small">系统状态</div>
-                    <div className="lo-record-panel-note">只用于确认日期切换、保存、缓存和历史汇总是否正常，不参与主判断。</div>
-                  </div>
-                  <span className="lo-btn lo-btn-text" style={{ color: C.blue }}>
-                    <span className="lo-btn-token"><PatrickMark color={C.blue} size={11} /></span>
-                    <span>{showSystemStatus ? "收起" : "展开"}</span>
-                  </span>
-                </button>
-
-                <div className="lo-record-diagnostics-grid">
-                  {[
-                    { title: "日期", state: viewState },
-                    { title: "保存", state: saveState },
-                    { title: "缓存", state: cacheState },
-                    { title: "历史", state: historyState },
-                  ].map((item) => {
-                    const tone = statusTone[item.state.tone] || statusTone.idle;
-                    return (
-                      <div key={item.title} className="lo-record-diagnostics-card">
-                        <div className="lo-record-diagnostics-label">{item.title}</div>
-                        <div className="lo-record-diagnostics-value" style={{ color: tone.color }}>{item.state.label}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {showSystemStatus && (
-                  <div className="lo-record-diagnostics-detail">
-                    {[
-                      { title: "日期切换层", state: viewState },
-                      { title: "快照保存层", state: saveState },
-                      { title: "缓存读取层", state: cacheState },
-                      { title: "历史汇总层", state: historyState },
-                    ].map((item) => {
-                      const tone = statusTone[item.state.tone] || statusTone.idle;
-                      return (
-                        <div key={item.title} className="lo-record-diagnostics-detail-card" style={{ background: tone.bg }}>
-                          <div className="lo-record-diagnostics-detail-title">{item.title}</div>
-                          <div className="lo-record-diagnostics-detail-value" style={{ color: tone.color }}>{item.state.label}</div>
-                          <div className="lo-record-diagnostics-detail-copy">{item.state.detail}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+          )}
         </section>
-
         {!notePanelUi.hidden && (
           <aside
             ref={notePanelRef}

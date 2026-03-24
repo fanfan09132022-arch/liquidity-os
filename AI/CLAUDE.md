@@ -63,14 +63,43 @@
 
 ---
 
+## 〇、当前状态快照（2026-03-23）
+
+### 刚完成的事
+
+本轮完成了以下四个 PKG，全部已审查 + 部署验证：
+
+| 包 | 内容 | 状态 |
+|----|------|------|
+| `PKG-bugfix-data-paths` | dex key 路径、SOL $NaN、meme key、Router flags | READY_FOR_QA |
+| `PKG-bugfix-worker-fields` | gnl.change_7d、mvrv_z_score 近似、MVRV label | READY_FOR_QA（已部署验证） |
+| `PKG-newsstrip-refactor` | NewsStrip 抽共享组件 + --lo-* token 化 | READY_FOR_QA |
+| `PKG-recharts-minheight` | ResponsiveContainer height="100%" → 显式高度 | READY_FOR_QA |
+
+Worker 已部署（`CACHE_NAMESPACE = "v20260323-fix13"`），`mvrv_z_score: 0.77`、`gnl.change_7d: -0.006` 均已验证返回真实值。
+
+### 下一步：重构 UI 逻辑
+
+用户明确说明：**下一步要重新构建 UI 的逻辑**。
+
+方向尚未展开，需要在下一个会话开始时通过 `/office-hours` 或直接需求澄清确认以下内容：
+
+- 重构范围：哪些页面 / 哪些层（Dashboard 首页？DetailPage？全部？）
+- 重构目标：信息架构调整？交互逻辑重写？数据展示方式？
+- 优先级：是否先有设计稿 / wireframe，还是从代码层直接推进
+
+**进入下一会话时，不要急着切包。先澄清"重新构建 UI 逻辑"的具体含义。**
+
+---
+
 ## 二、当前项目现实
 
 除非用户明确说明发生变化，否则默认按以下现实工作：
 
-- 当前主要工作分支：`codex/full-preview`
+- 当前主要工作分支：`main`（`codex/full-preview` 已合并）
 - 当前真实运行时：根目录 Vite + React app
 - 当前阶段重点：
-  - polish
+  - UI 逻辑重构（下一阶段）
   - correctness
   - reviewability
   - bounded improvement

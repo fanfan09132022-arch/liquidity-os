@@ -15,6 +15,34 @@ const write = (key, value) => {
   }
 };
 
+export async function listDailySnapshotSummaries(days = 30) {
+  const items = [];
+  const now = new Date();
+  for (let i = 0; i < days; i++) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    const dateValue = d.toISOString().slice(0, 10);
+    const key = `daily:${dateValue}`;
+    try {
+      const raw = read(key);
+      if (!raw) continue;
+      const snap = JSON.parse(raw);
+      items.push({
+        dateValue,
+        hero: snap.heroSnapshot || null,
+        fgVal: snap.fgVal ?? "",
+        l4: snap.l4Snapshot || null,
+        note: snap.dailyNote || "",
+        hasMacro: !!snap.macroSnapshot,
+        savedAt: snap.savedAt || null,
+      });
+    } catch {
+      // ignore invalid snapshot
+    }
+  }
+  return items;
+}
+
 export const storage = {
   /**
    * Read the raw string payload for a key.
