@@ -253,7 +253,28 @@ calcHeroSignal(signals=[l2Signal, l3Signal, fgSignal, l4Signal], context)
 
 ## 六、当前进度与待办
 
-### 已完成（2026-03-24）
+### 项目阶段判断（2026-03-24）
+
+**已稳定、不需要改的部分：**
+- `dashboard/worker/worker.js` — 数据层（API 代理、数据聚合、缓存），除清理 Binance 死路由外不需改动
+- `dashboard/gmgn-proxy/` — GMGN IPv4 代理，已稳定
+- `src/lib/api.js` — Worker 通信层（除清理 Binance fallback 外）
+- `src/lib/storage.js` — localStorage 持久化
+- `src/lib/utils.js` — 格式化工具函数
+- `src/config.js` — Worker URL 配置
+- 所有数据获取逻辑、缓存策略、API 路由
+
+**需要重新修改的部分（= 下一阶段主要工作）：**
+- **决策引擎** — `calcHeroSignal`、`buildVerdictText`、信号计算逻辑（在 `src/App.jsx`）需要重新设计评分模型和输出方式
+- **页面交互** — 所有页面的交互流程、状态管理、用户操作路径需要重新规划
+- **页面设计** — 两套设计系统共存（`--lo-*` tokens vs 硬编码 iOS hex），视觉风格、布局、组件样式需要统一重做
+- **功能区** — Dashboard 结构、L4 Workbench 布局、Detail Pages 信息架构、组件组织方式需要重新构建
+
+**简而言之：数据管道已通，上层全部重做。**
+
+当前代码可以正常 `npm run build` + 运行，但前端产品形态处于"功能可用但需要全面重构"的状态。下一阶段的工作是在稳定的数据层之上，重建整个用户界面和决策体验。
+
+### 已完成的基础设施
 
 | 包 | 内容 | 状态 |
 |----|------|------|
@@ -265,19 +286,24 @@ calcHeroSignal(signals=[l2Signal, l3Signal, fgSignal, l4Signal], context)
 | GMGN IPv6 修复 | Vercel IPv4 proxy | ✅ 3 端点全通 |
 | 仓库清理 | 删除旧分支/旧文件，更新 README + PRD | ✅ 已推送 |
 
-### 待办（优先级排序）
+### 待办（进入重构前的清理）
 
-1. **清理 Binance 死路由** — 删除 worker.js 中 3 个 `/api/binance/*` 路由 + `fetchBinanceWeb3Json` helper + `BINANCE_CHAIN_MAP` + api.js 中 Binance fallback
-2. **P1 设计统一** — 两套设计系统共存（`--lo-*` tokens vs 硬编码 iOS hex），需统一。计划文件：`.claude/plans/sunny-squishing-fountain.md`
-3. **浏览器 QA 回归** — Dashboard 新布局、L4 执行建议、所有路由
-4. **AppStateProvider Phase C** — 高风险 context 迁移（watchlist, alphaCards, alphaDecisions）
+1. **清理 Binance 死路由** — 删除 worker.js 中 3 个 `/api/binance/*` 路由 + `fetchBinanceWeb3Json` + `BINANCE_CHAIN_MAP` + api.js 中 Binance fallback
+
+### 重构方向（待规划）
+
+以下都需要通过 `/office-hours` 或 `/plan-eng-review` 明确范围后再执行：
+
+- **设计系统统一** — 统一到 `--lo-*` token 体系，消除硬编码色值
+- **决策引擎重设计** — 信号评分模型、verdict 输出方式、信号对齐逻辑
+- **页面架构重构** — Dashboard/L0-L4/Detail Pages 的信息架构和交互流程
+- **组件体系重建** — 从 inline style 迁移到 CSS class，组件复用
+- **格式化函数去重** — fmtPct/fmtB 在 8+ 文件重复定义
 
 ### 已知问题
 
-- 两套设计系统共存 → P1 修复
-- 格式化函数（fmtPct、fmtB）在 8+ 文件重复定义 → P1 Step 8
-- `/api/all` 缓存 1h，CMC 数据首次需等缓存刷新
 - CMC `/v1/cryptocurrency/category` 的 BSEN token mcap $587B 异常（CMC 数据质量问题）
+- `/api/all` 缓存 1h，部署后首次需等缓存刷新
 
 ---
 
